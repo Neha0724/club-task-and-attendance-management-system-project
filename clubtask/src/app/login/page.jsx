@@ -13,6 +13,10 @@ export default function LoginPage() {
     router.push('/board')
   }
 
+  const handleSignUp = () => {
+    router.push('/signup')
+  }
+
   return (
     <div className="min-h-screen bg-linear-to-r from-gray-900 via-black to-gray-900">
       <Header />
@@ -67,8 +71,10 @@ export default function LoginPage() {
                 <button className="text-green-400 hover:text-green-300 transition-colors">
                   &gt; forgot_password?
                 </button>
-                <button className="text-green-400 hover:text-green-300 transition-colors">
-                  &gt; request_access
+                <button
+                  onClick={handleSignUp}
+                  className="text-green-400 hover:text-green-300 transition-colors">
+                  &gt; register_now
                 </button>
               </div>
             </div>

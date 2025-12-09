@@ -27,7 +27,7 @@ export default function ProfilePage() {
               <h3 className="text-white font-bold mb-4">USER_PROFILE: <span className="text-green-400">[JD]</span></h3>
               <div className="flex flex-col items-center mb-6">
                 <div className="w-32 h-32 border-4 border-green-500 rounded-full flex items-center justify-center mb-4 shadow-2xl shadow-green-500/30 relative">
-                  <span className="text-green-400 text-3xl font-bold">[JD]</span>
+                  <span className="text-green-400 text-3xl font-bold">[NT]</span>
                   <div className="absolute inset-0 border-4 border-green-500/20 rounded-full animate-ping"></div>
                 </div>
               </div>
@@ -62,11 +62,21 @@ export default function ProfilePage() {
                   readOnly
                 />
               </div>
+
+              <div>
+                <label className="block text-white mb-2 text-sm font-bold">Domain</label>
+                <textarea
+                  className="w-full bg-black/50 border border-gray-700 rounded px-2 py-2 text-gray-400 h-12 focus:outline-none focus:border-green-500 transition-colors resize-none"
+                  value="Technical Team Member"
+                  readOnly
+                />
+              </div>
+
               <div>
                 <label className="block text-white mb-2 text-sm font-bold">BIO</label>
                 <textarea
                   className="w-full bg-black/50 border border-gray-700 rounded px-4 py-2 text-gray-400 h-32 focus:outline-none focus:border-green-500 transition-colors resize-none"
-                  value="Hello world assemby projects !Thail neots! Kunnally fina..."
+                  value="Hello I'm Neha Tated. Technical Team Member"
                   readOnly
                 />
               </div>

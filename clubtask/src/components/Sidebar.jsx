@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Layout, Calendar, User, Settings } from 'lucide-react'
+import { Layout, Calendar, User, Settings, File } from 'lucide-react'
 
 export default function Sidebar() {
   const pathname = usePathname()
@@ -10,6 +10,7 @@ export default function Sidebar() {
   const navItems = [
     { href: '/board', icon: Layout, label: 'PROJECT_BOARD' },
     { href: '/events', icon: Calendar, label: 'EVENTS' },
+    { href: '/attendance', icon: File, label: 'ATTENDANCE' },
     { href: '/profile', icon: User, label: 'PROFILE' },
   ]
 
@@ -41,6 +42,7 @@ export default function Sidebar() {
       <div className="text-green-500 text-xs text-center border-t border-green-900/50 pt-4 w-full">
         {pathname === '/board' && 'PROJECT_BOARD'}
         {pathname === '/events' && 'EVENTS'}
+        {pathname === '/attendance' && 'ATTENDANCE'}
         {pathname === '/profile' && 'PROFILE'}
       </div>
     </div>

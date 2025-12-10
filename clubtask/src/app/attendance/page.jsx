@@ -13,9 +13,9 @@ export default function Attendance() {
   
   return (
     <MainLayout hudType="attendance">
-      <div className='p-6'>
+      <div className='p-6 mx-auto'>
         <div className='flex items-center justify-between mb-6'>
-          <h2 className='text-3xl font-bold text-white'>ATTENDANCE_LOG</h2>
+          <h2 className='text-3xl mx-auto font-bold text-white'>ATTENDANCE_LOG</h2>
 
           <button className='bg-green-500 hover:bg-green-600 text-black font-bold py-2 px-6 rounded transition-all duration-200 shadow-lg hover:shadow-green-500/50'>&gt;[ GENERATE .CSV FILE ]</button>
         </div>

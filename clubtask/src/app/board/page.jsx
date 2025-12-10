@@ -1,8 +1,42 @@
 'use client';
 
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import MainLayout from '@/components/MainLayout'
 
+function FloatingOverlay({ open, onClose, children }) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20">
+      {/* Background blur */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}></div>
+
+      {/* Floating card */}
+      <div className="relative bg-gray-900 border border-green-500/40 rounded-xl shadow-2xl w-[360px] p-6 z-50">
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-2 right-2 text-sm bg-gray-800 px-2 py-1 rounded hover:bg-gray-700 text-white"
+        >
+          X
+        </button>
+
+        {children}
+      </div>
+    </div>
+  );
+}
+/*------board page----------*/
 export default function BoardPage() {
+  const router = useRouter()
+
+  const [openOverlay, setOpenOverlay] = useState(false);
+  const handleNewTask = () => {
+  setOpenOverlay(true);
+};
+
+
   const columns = [
     {
       title: 'INITIALIZE',
@@ -55,10 +89,42 @@ export default function BoardPage() {
 
   return (
     <MainLayout hudType="board">
-      <div className="p-6">
+      
+      <FloatingOverlay open={openOverlay} onClose={() => setOpenOverlay(false)}>
+      <h2 className="text-green-400 font-bold text-lg mb-4">EXECUTE NEW TASK</h2>
+
+      <input
+      type="text"
+      placeholder="Task Title"
+      className="w-full mb-3 px-3 py-2 rounded bg-gray-800 border border-green-700 text-white"
+      />
+
+      <input
+      type="date"
+      className="w-full mb-3 px-3 py-2 rounded bg-gray-800 border border-green-700 text-white"
+      />
+
+      <input
+      type="color-text"
+      placeholder="choose colour"
+      className="w-full mb-3 px-3 py-2 rounded bg-gray-800 border border-green-700 text-white"
+      />
+
+  <button
+    className="w-full bg-green-600 hover:bg-green-700 text-black font-bold py-2 rounded mt-2"
+    onClick={() => setOpenOverlay(false)}
+  >
+    SAVE TASK
+  </button>
+</FloatingOverlay>
+
+
+      <div className="p-6 mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-3xl font-bold text-white">PROJECT_BOARD</h2>
-          <button className="bg-green-500 hover:bg-green-600 text-black font-bold py-2 px-3 rounded transition-all duration-200 shadow-lg hover:shadow-green-500/50">
+          <button
+            onClick={handleNewTask}
+            className="bg-green-500 hover:bg-green-600 text-black font-bold py-2 px-3 rounded transition-all duration-200 shadow-lg hover:shadow-green-500/50">
             [ + EXECUTE NEW TASK ]
           </button>
         </div>

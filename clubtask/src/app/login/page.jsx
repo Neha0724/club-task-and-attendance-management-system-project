@@ -9,12 +9,16 @@ export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
 
-  const handleLogin = () => {
-    router.push('/board')
-  }
+  const handleLoginAs = (role) => {
+    // save role in localStorage (frontend only)
+    try {
+      localStorage.setItem('userRole', role)
+    } catch (e) {
+      console.warn('Could not access localStorage', e)
+    }
 
-  const handleLeadPage = () => {
-    router.push('/leadpage')
+    // redirect to board
+    router.push('/board')
   }
 
   const handleSignUp = () => {
@@ -24,7 +28,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-linear-to-r from-gray-900 via-black to-gray-900">
       <Header />
-      
+
       <div className="flex items-center justify-center h-[calc(100vh-88px)] bg-pattern">
         <div className="w-full max-w-2xl px-4">
           <div className="border-2 border-blue-500/50 rounded-lg bg-gray-900/80 backdrop-blur p-8 shadow-2xl shadow-blue-500/20">
@@ -58,13 +62,14 @@ export default function LoginPage() {
 
               <div className="flex gap-4">
                 <button
-                  onClick={handleLeadPage}
+                  onClick={() => handleLoginAs('lead')}
                   className="flex-1 bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-6 rounded transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-green-500/50"
                 >
                   <span>👑</span> [ AS A LEAD ]
                 </button>
+
                 <button
-                  onClick={handleLogin}
+                  onClick={() => handleLoginAs('member')}
                   className="flex-1 bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-6 rounded transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-green-500/50"
                 >
                   <span>👤</span> [ AS A MEMBER ]

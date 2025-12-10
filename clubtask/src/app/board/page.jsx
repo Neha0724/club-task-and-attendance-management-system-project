@@ -8,27 +8,27 @@ export default function BoardPage() {
       title: 'INITIALIZE',
       subtitle: '[Backlog]',
       tasks: [
-        { id: '1', title: 'Team Project PPT', tag: '<PPT>', color: 'red' },
-        { id: '2', title: 'Team Project', tag: '<#backend>', color: 'red' },
-        { id: '3', title: 'Territory Event', tag: '<#frontend>', color: 'red' },
-        { id: '4', title: 'Territory Event', tag: '<#backend>', color: 'red' }
+        { title: 'Team Project PPT', timeline: '12-12-25', color: 'red' },
+        { title: 'Team Project', timeline: '12-12-25', color: 'red' },
+        { title: 'Territory Event', timeline: '09-01-36', color: 'red' },
+        { title: 'Territory Event', timeline: '20-01-26', color: 'red' }
       ]
     },
     {
       title: 'RUNNING PROCESSES',
       subtitle: '[In Progress]',
       tasks: [
-        { id: '5', title: 'Team Project', tag: '<#frontend>', color: 'orange' },
-        { id: '6', title: 'Team Project', tag: '<#backend>', color: 'orange' }
+        { title: 'Team Project', timeline: '12-12-25', color: 'orange' },
+        { title: 'Team Project', timeline: '12-12-25', color: 'orange' }
       ]
     },
     {
       title: 'DEPLOYED',
       subtitle: '[Done]',
       tasks: [
-        { id: '7', title: 'Workshop PPT', tag: '<PPT>', color: 'blue' },
-        { id: '8', title: 'Geeks-git 4.0', tag: '<Session>', color: 'blue' },
-        { id: '9', title: 'Final Event PPT presentation', tag: '<Presentation>', color: 'blue' }
+        { title: 'Workshop PPT', timeline: '30-08-25', color: 'blue' },
+        { title: 'Geeks-git 4.0', timeline: '05-10-25', color: 'blue' },
+        { title: 'Final Event PPT presentation', timeline: '17-09-25', color: 'blue' }
       ]
     }
   ]
@@ -78,7 +78,7 @@ export default function BoardPage() {
                   >
                     <p className="text-gray-400 text-xs mb-2">{task.id}</p>
                     <p className="text-white text-sm mb-3">{task.title}</p>
-                    <span className="text-green-600 text-xs">{task.tag}</span>
+                    <span className="text-green-600 text-xs">{task.timeline}</span>
                   </div>
                 ))}
               </div>

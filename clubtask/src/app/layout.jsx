@@ -1,7 +1,7 @@
 import './globals.css'
 
 export const metadata = {
-  title: 'GFG Club MS',
+  title: 'GFG Club Management System',
   description: 'Project Management System',
 }
 

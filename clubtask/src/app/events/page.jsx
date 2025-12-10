@@ -65,18 +65,12 @@ export default function EventsPage() {
             >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-gray-400 text-sm font-bold">{event.date}</span>
-                {event.live && (
-                  <span className="flex items-center gap-1 text-red-400 text-xs">
-                    <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                    LIVE
-                  </span>
-                )}
               </div>
               <h3 className="text-white font-bold mb-2">{event.title}</h3>
               <p className="text-gray-400 text-sm mb-1">Time: {event.time}</p>
               <p className="text-gray-400 text-sm mb-4">Location: {event.location}</p>
               <button className="w-full border border-green-500 text-green-400 py-1 rounded text-sm hover:bg-green-500/10 transition-colors">
-                [ REGISTER ]
+                [ KNOW MORE ]
               </button>
             </div>
           ))}

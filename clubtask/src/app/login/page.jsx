@@ -13,6 +13,10 @@ export default function LoginPage() {
     router.push('/board')
   }
 
+  const handleLeadPage = () => {
+    router.push('/leadpage')
+  }
+
   const handleSignUp = () => {
     router.push('/signup')
   }
@@ -54,7 +58,7 @@ export default function LoginPage() {
 
               <div className="flex gap-4">
                 <button
-                  onClick={handleLogin}
+                  onClick={handleLeadPage}
                   className="flex-1 bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-6 rounded transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-green-500/50"
                 >
                   <span>👑</span> [ AS A LEAD ]

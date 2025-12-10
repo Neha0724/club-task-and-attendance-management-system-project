@@ -15,16 +15,13 @@ export default function ProfilePage() {
       <div className="p-20">
         <div className="flex items-center justify-between mb-10">
           <h2 className="text-3xl font-bold text-white">MY_PROFILE</h2>
-          <button className="bg-green-500 hover:bg-green-600 text-black font-bold py-2 px-6 rounded transition-all duration-200 shadow-lg hover:shadow-green-500/50">
-            &gt;[VIEW MYPROFILE]
-          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-6">
           {/* User Profile */}
           <div className="space-y-6">
             <div className="bg-gray-900/30 border border-green-900/50 rounded-lg p-6">
-              <h3 className="text-white font-bold mb-4">USER_PROFILE: <span className="text-green-400">[JD]</span></h3>
+              <h3 className="text-white font-bold mb-4">USER_PROFILE</h3>
               <div className="flex flex-col items-center mb-6">
                 <div className="w-32 h-32 border-4 border-green-500 rounded-full flex items-center justify-center mb-4 shadow-2xl shadow-green-500/30 relative">
                   <span className="text-green-400 text-3xl font-bold">[NT]</span>
@@ -35,15 +32,15 @@ export default function ProfilePage() {
               <div className="space-y-3">
                 <div className="border-2 border-green-500 bg-green-950/20 rounded-lg p-4 hover:bg-green-950/30 transition-colors">
                   <p className="text-gray-400 text-sm mb-1">TASKS_COMPLETED:</p>
-                  <p className="text-white text-2xl font-bold">145</p>
+                  <p className="text-white text-2xl font-bold">15</p>
                 </div>
                 <div className="border-2 border-green-500 bg-green-950/20 rounded-lg p-4 hover:bg-green-950/30 transition-colors">
                   <p className="text-gray-400 text-sm mb-1">EVENTS_ATTENDED:</p>
-                  <p className="text-white text-2xl font-bold">23</p>
+                  <p className="text-white text-2xl font-bold">20</p>
                 </div>
                 <div className="border-2 border-green-500 bg-green-950/20 rounded-lg p-4 hover:bg-green-950/30 transition-colors">
                   <p className="text-gray-400 text-sm mb-1">MEMBER_SINCE:</p>
-                  <p className="text-white text-2xl font-bold">2021</p>
+                  <p className="text-white text-2xl font-bold">2025</p>
                 </div>
               </div>
             </div>
@@ -57,8 +54,17 @@ export default function ProfilePage() {
                 <label className="block text-white mb-2 text-sm font-bold">Email</label>
                 <input
                   type="email"
-                  value="yoirnoholm@gmail.com"
+                  value="nehatated@gmail.com"
                   className="w-full bg-black/50 border border-gray-700 rounded px-4 py-2 text-gray-400 focus:outline-none focus:border-green-500 transition-colors"
+                  readOnly
+                />
+              </div>
+
+              <div>
+                <label className="block text-white mb-2 text-sm font-bold">Position</label>
+                <textarea
+                  className="w-full bg-black/50 border border-gray-700 rounded px-2 py-2 text-gray-400 h-12 focus:outline-none focus:border-green-500 transition-colors resize-none"
+                  value="Member"
                   readOnly
                 />
               </div>
@@ -67,7 +73,7 @@ export default function ProfilePage() {
                 <label className="block text-white mb-2 text-sm font-bold">Domain</label>
                 <textarea
                   className="w-full bg-black/50 border border-gray-700 rounded px-2 py-2 text-gray-400 h-12 focus:outline-none focus:border-green-500 transition-colors resize-none"
-                  value="Technical Team Member"
+                  value="Technical Team"
                   readOnly
                 />
               </div>

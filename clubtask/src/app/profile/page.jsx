@@ -1,97 +1,230 @@
 'use client'
 
 import MainLayout from '@/components/MainLayout'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { DOMAINS } from '@/data/domains' // adjust path if needed
 
 export default function ProfilePage() {
   const router = useRouter()
+
+  const [currentMemberId, setCurrentMemberId] = useState(null)
+  const [currentMemberName, setCurrentMemberName] = useState(null)
+  const [email, setEmail] = useState('')
+  const [position, setPosition] = useState('Member')
+  const [domainName, setDomainName] = useState('')
+  const [bio, setBio] = useState('')
+  const [memberSince, setMemberSince] = useState('')
+
+  const [boardTasks, setBoardTasks] = useState([])
+  const [eventsList, setEventsList] = useState([])
+  const [attendanceState, setAttendanceState] = useState({})
+
+  // bio edit UI state
+  const [isEditingBio, setIsEditingBio] = useState(false)
+  const [draftBio, setDraftBio] = useState('')
+
+  const ALL_MEMBERS = DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name })))
+
+  useEffect(() => {
+    // detect signed member from common keys
+    const tryKeys = ['currentMemberId', 'memberId', 'userId', 'username', 'currentUserId']
+    let found = null
+    for (const k of tryKeys) {
+      const v = localStorage.getItem(k)
+      if (!v) continue
+      const byId = ALL_MEMBERS.find(m => m.id === v)
+      if (byId) { found = byId; break }
+      const byName = ALL_MEMBERS.find(m => m.name.toLowerCase() === v.toLowerCase())
+      if (byName) { found = byName; break }
+      try {
+        const parsed = JSON.parse(v)
+        if (parsed && (parsed.id || parsed.memberId)) {
+          const id = parsed.id || parsed.memberId
+          const mm = ALL_MEMBERS.find(x => x.id === id)
+          if (mm) { found = mm; break }
+        }
+      } catch {}
+    }
+
+    const storedName = localStorage.getItem('profileName') || localStorage.getItem('name')
+    const storedEmail = localStorage.getItem('email') || localStorage.getItem('profileEmail')
+    const storedPosition = localStorage.getItem('position') || localStorage.getItem('profilePosition')
+    const storedDomain = localStorage.getItem('domain') || localStorage.getItem('profileDomain')
+    const storedBio = localStorage.getItem('bio') || localStorage.getItem('profileBio')
+    const storedSince = localStorage.getItem('memberSince')
+
+    if (found) {
+      setCurrentMemberId(found.id)
+      setCurrentMemberName(found.name)
+      setDomainName(found.domain)
+    } else {
+      if (storedName) setCurrentMemberName(storedName)
+      if (storedDomain) setDomainName(storedDomain)
+    }
+
+    if (storedEmail) setEmail(storedEmail)
+    if (storedPosition) setPosition(storedPosition || 'Member')
+    if (storedBio) setBio(storedBio)
+    else setBio(localStorage.getItem('profileBio') || '')
+
+    setMemberSince(storedSince || (new Date()).getFullYear().toString())
+
+    // load board tasks
+    try {
+      const rawTasks = localStorage.getItem('boardTasks')
+      const tasks = rawTasks ? JSON.parse(rawTasks) : []
+      setBoardTasks(tasks)
+    } catch (e) { console.warn(e); setBoardTasks([]) }
+
+    // load events + attendance maps
+    try {
+      const raw = localStorage.getItem('events')
+      const ev = raw ? JSON.parse(raw) : []
+      setEventsList(ev)
+
+      const state = {}
+      ev.forEach(e => {
+        try {
+          const rawA = localStorage.getItem(`attendance-${e.id}`)
+          state[e.id] = rawA ? JSON.parse(rawA) : {}
+        } catch {
+          state[e.id] = {}
+        }
+      })
+      setAttendanceState(state)
+    } catch (e) { console.warn(e); setEventsList([]); setAttendanceState({}) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // tasks completed list & count (done column)
+  const completedTasks = useMemo(() => {
+    if (!currentMemberId) return []
+    return boardTasks.filter(t => t.assignee === currentMemberId && (t.columnId === 'done' || t.columnId === 'DEPLOYED'))
+  }, [boardTasks, currentMemberId])
+
+  const tasksCompletedCount = completedTasks.length
+
+  // events attended count
+  const eventsAttended = useMemo(() => {
+    if (!currentMemberId) return 0
+    let count = 0
+    for (const ev of eventsList) {
+      const map = attendanceState[ev.id] || {}
+      const status = map[currentMemberId] || 'present'
+      if (status === 'present') count++
+    }
+    return count
+  }, [eventsList, attendanceState, currentMemberId])
+
+  // ensure fallback names/domains if id matched later
+  useEffect(() => {
+    if (!currentMemberName && currentMemberId) {
+      const mm = ALL_MEMBERS.find(m => m.id === currentMemberId)
+      if (mm) {
+        setCurrentMemberName(mm.name)
+        setDomainName(mm.domain)
+      }
+    }
+  }, [currentMemberId, currentMemberName, ALL_MEMBERS])
 
   const handleLogout = () => {
     router.push('/login')
   }
 
+  const initials = (name) => {
+    if (!name) return 'US'
+    return name.split(' ').map(s => s[0]).slice(0,2).join('').toUpperCase()
+  }
+
+  // Bio editing handlers
+  const startEditBio = () => {
+    setDraftBio(bio || '')
+    setIsEditingBio(true)
+    // focus will be handled by browser automatically if user clicks
+  }
+  const cancelEditBio = () => {
+    setDraftBio('')
+    setIsEditingBio(false)
+  }
+  const saveBio = () => {
+    const trimmed = (draftBio || '').trim()
+    setBio(trimmed)
+    localStorage.setItem('bio', trimmed)
+    setIsEditingBio(false)
+  }
+
   return (
     <MainLayout hudType="profile">
-      <div className="p-20">
-        <div className="flex items-center justify-between mb-10">
-          <h2 className="text-3xl font-bold text-white">MY_PROFILE</h2>
+      <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-3">
+          <h2 className="text-2xl sm:text-3xl font-bold text-white">MY PROFILE</h2>
+          
+          <div className="mt-4 md:mt-0 md:w-50">
+              <button onClick={handleLogout} className="w-full bg-red-900/50 hover:bg-red-900/70 border border-red-500 text-red-400 font-bold py-2 px-4 rounded">[ LOG OUT ]</button>
+           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-6">
-          {/* User Profile */}
-          <div className="space-y-6">
-            <div className="bg-gray-900/30 border border-green-900/50 rounded-lg p-6">
-              <h3 className="text-white font-bold mb-4">USER_PROFILE</h3>
-              <div className="flex flex-col items-center mb-6">
-                <div className="w-32 h-32 border-4 border-green-500 rounded-full flex items-center justify-center mb-4 shadow-2xl shadow-green-500/30 relative">
-                  <span className="text-green-400 text-3xl font-bold">[NT]</span>
-                  <div className="absolute inset-0 border-4 border-green-500/20 rounded-full animate-ping"></div>
-                </div>
-              </div>
+        {/* Upper: expanded profile card with completed tasks replacing the three boxes */}
+        <div className="bg-gray-900/30 border border-green-900/50 rounded-lg p-6 mb-6">
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+            <div className="w-24 h-24 rounded-full bg-green-800 flex items-center justify-center text-white text-3xl font-bold">
+              {initials(currentMemberName || localStorage.getItem('profileName') || 'US')}
+            </div>
 
-              <div className="space-y-3">
-                <div className="border-2 border-green-500 bg-green-950/20 rounded-lg p-4 hover:bg-green-950/30 transition-colors">
-                  <p className="text-gray-400 text-sm mb-1">TASKS_COMPLETED:</p>
-                  <p className="text-white text-2xl font-bold">15</p>
-                </div>
-                <div className="border-2 border-green-500 bg-green-950/20 rounded-lg p-4 hover:bg-green-950/30 transition-colors">
-                  <p className="text-gray-400 text-sm mb-1">EVENTS_ATTENDED:</p>
-                  <p className="text-white text-2xl font-bold">20</p>
-                </div>
-                <div className="border-2 border-green-500 bg-green-950/20 rounded-lg p-4 hover:bg-green-950/30 transition-colors">
-                  <p className="text-gray-400 text-sm mb-1">MEMBER_SINCE:</p>
-                  <p className="text-white text-2xl font-bold">2025</p>
-                </div>
-              </div>
+            <div className="flex-1">
+              <div className="text-white text-xl font-semibold">{currentMemberName || localStorage.getItem('profileName') || 'Unknown User'}</div>
+              <div className="text-sm text-gray-400 mt-1">{email || localStorage.getItem('email') || 'no-email@local'}</div>
+              <div className="text-xs text-gray-400 mt-2">Domain: <span className="text-white ml-1">{domainName || localStorage.getItem('domain') || '—'}</span></div>
+              <div className="text-xs text-gray-400 mt-1">Position: <span className="text-white ml-1">{position || 'Member'}</span></div>
+              <div className="text-xs text-gray-400 mt-1">Member since: <span className="text-white ml-1">{memberSince}</span></div>
             </div>
           </div>
 
-          {/* Personal Settings */}
-          <div className="bg-gray-900/30 border border-green-900/50 rounded-lg p-6">
-            <h3 className="text-white font-bold mb-6">PERSONAL_SETTINGS</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-white mb-2 text-sm font-bold">Email</label>
-                <input
-                  type="email"
-                  value="nehatated@gmail.com"
-                  className="w-full bg-black/50 border border-gray-700 rounded px-4 py-2 text-gray-400 focus:outline-none focus:border-green-500 transition-colors"
-                  readOnly
-                />
-              </div>
+          {/* bio (editable) */}
+          <div className="mt-6 text-sm text-gray-300">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-gray-400">Bio:</div>
+              {!isEditingBio ? (
+                <button onClick={startEditBio} className="text-xs bg-gray-800 px-2 py-1 rounded text-green-300">Edit Bio</button>
+              ) : (
+                <div className="flex gap-2">
+                  <button onClick={saveBio} className="text-xs bg-green-600 px-2 py-1 rounded text-black">Save</button>
+                  <button onClick={cancelEditBio} className="text-xs bg-gray-800 px-2 py-1 rounded text-gray-300">Cancel</button>
+                </div>
+              )}
+            </div>
 
-              <div>
-                <label className="block text-white mb-2 text-sm font-bold">Position</label>
-                <textarea
-                  className="w-full bg-black/50 border border-gray-700 rounded px-2 py-2 text-gray-400 h-12 focus:outline-none focus:border-green-500 transition-colors resize-none"
-                  value="Member"
-                  readOnly
-                />
-              </div>
+            {!isEditingBio ? (
+              <div className="mt-2 text-gray-200 rounded-lg bg-gray-800/20 p-3">{bio || localStorage.getItem('bio') || 'No bio provided.'}</div>
+            ) : (
+              <textarea
+                value={draftBio}
+                onChange={(e) => setDraftBio(e.target.value)}
+                rows={5}
+                className="w-full mt-2 bg-black/50 border border-green-700 text-white rounded p-3 focus:outline-none focus:border-green-400 resize-none"
+                placeholder="Write something about yourself..."
+                aria-label="Edit bio"
+              />
+            )}
+          </div>
+        </div>
 
-              <div>
-                <label className="block text-white mb-2 text-sm font-bold">Domain</label>
-                <textarea
-                  className="w-full bg-black/50 border border-gray-700 rounded px-2 py-2 text-gray-400 h-12 focus:outline-none focus:border-green-500 transition-colors resize-none"
-                  value="Technical Team"
-                  readOnly
-                />
-              </div>
-
-              <div>
-                <label className="block text-white mb-2 text-sm font-bold">BIO</label>
-                <textarea
-                  className="w-full bg-black/50 border border-gray-700 rounded px-4 py-2 text-gray-400 h-32 focus:outline-none focus:border-green-500 transition-colors resize-none"
-                  value="Hello I'm Neha Tated. Technical Team Member"
-                  readOnly
-                />
-              </div>
-              <button 
-                onClick={handleLogout}
-                className="w-full bg-red-900/50 hover:bg-red-900/70 border border-red-500 text-red-400 font-bold py-2 rounded transition-all duration-200 hover:shadow-lg hover:shadow-red-500/50"
-              >
-                [ LOG_OUT ]
-              </button>
+        {/* Bottom: Activity Summary (kept as it was) */}
+        <div className="bg-gray-900/30 border border-green-900/50 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-3">Activity Summary</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-3 rounded bg-gray-800/30 text-center">
+              <div className="text-xs text-gray-400">Tasks completed</div>
+              <div className="text-white font-bold text-2xl">{tasksCompletedCount}</div>
+            </div>
+            <div className="p-3 rounded bg-gray-800/30 text-center">
+              <div className="text-xs text-gray-400">Events present</div>
+              <div className="text-white font-bold text-2xl">{eventsAttended}</div>
+            </div>
+            <div className="p-3 rounded bg-gray-800/30 text-center">
+              <div className="text-xs text-gray-400">Member since</div>
+              <div className="text-white font-bold text-2xl">{memberSince}</div>
             </div>
           </div>
         </div>

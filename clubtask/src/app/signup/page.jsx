@@ -126,8 +126,6 @@ export default function SignUpPage() {
                 </button>
               </div>
             </form>
-
-            <p className="mt-4 text-xs text-gray-400">Note: This is frontend-only signup. Data is stored locally in your browser for demo/testing purposes.</p>
           </div>
         </div>
       </div>

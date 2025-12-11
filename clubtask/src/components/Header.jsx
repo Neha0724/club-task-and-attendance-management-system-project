@@ -9,12 +9,8 @@ export default function Header() {
             <span className="text-green-400 font-bold text-xs">GFG</span>
           </div>
           <h1 className="text-2xl font-bold text-white">
-            <span className="text-green-400">GFG</span> CLUB COMMAND
+            <span className="text-green-400">GFG</span> CLUB MANAGEMENT SYSTEM
           </h1>
-        </div>
-        
-        <div className="w-12 h-12 border border-green-500 rounded-lg flex items-center justify-center hover:bg-green-500/10 transition-colors cursor-pointer">
-          <span className="text-green-400 text-xs font-bold">[NT]</span>
         </div>
       </div>
     </div>

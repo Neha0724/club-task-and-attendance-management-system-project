@@ -118,7 +118,7 @@ export default function ProfilePage() {
       <div className="p-4 sm:p-8 max-w-6xl mx-auto">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-3">
           <h2 className="text-2xl sm:text-3xl font-bold text-white">MY PROFILE</h2>
-          <div className="mt-4 md:mt-0 md:w-56">
+          <div className="mt-4 md:mt-0 md:w-50">
             <button onClick={handleLogout} className="w-full bg-red-900/50 hover:bg-red-900/70 border border-red-500 text-red-400 font-bold py-2 px-4 rounded">[ LOG OUT ]</button>
           </div>
         </div>

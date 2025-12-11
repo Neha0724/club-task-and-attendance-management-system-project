@@ -2,15 +2,13 @@
 
 import MainLayout from '@/components/MainLayout'
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { DOMAINS } from '@/data/domains' // adjust path if needed
 
 export default function ProfilePage() {
   const router = useRouter()
-  const search = useSearchParams()
-  const memberFromQuery = search?.get('member') || null
 
-  const [currentMemberId, setCurrentMemberId] = useState(memberFromQuery)
+  const [currentMemberId, setCurrentMemberId] = useState(null)
   const [currentMemberName, setCurrentMemberName] = useState('')
   const [email, setEmail] = useState('')
   const [position, setPosition] = useState('Member')
@@ -18,9 +16,9 @@ export default function ProfilePage() {
   const [bio, setBio] = useState('')
   const [memberSince, setMemberSince] = useState((new Date()).getFullYear().toString())
 
-  const [boardTasks, setBoardTasks] = useState([])      // keep in-memory lists (you can populate from props or API)
-  const [eventsList, setEventsList] = useState([])      // same as above
-  const [attendanceState, setAttendanceState] = useState({}) // same as above
+  const [boardTasks, setBoardTasks] = useState([])      // in-memory, populate from props/API if needed
+  const [eventsList, setEventsList] = useState([])      // in-memory
+  const [attendanceState, setAttendanceState] = useState({}) // in-memory
 
   // bio edit UI state (in-memory only)
   const [isEditingBio, setIsEditingBio] = useState(false)
@@ -29,26 +27,34 @@ export default function ProfilePage() {
   // flatten members for lookups
   const ALL_MEMBERS = DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name })))
 
+  // read query params client-side (avoids useSearchParams / suspense issue)
   useEffect(() => {
-    // If member id provided via query, pick it and fill basic fields from DOMAINS (no localStorage)
+    if (typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const memberFromQuery = params.get('member') || null
+
     if (memberFromQuery) {
       setCurrentMemberId(memberFromQuery)
       const found = ALL_MEMBERS.find(m => m.id === memberFromQuery)
       if (found) {
         setCurrentMemberName(found.name)
         setDomainName(found.domain)
+      } else {
+        setCurrentMemberName('')
+        setDomainName('')
       }
     } else {
-      // No member provided — keep placeholders or you can set defaults here
+      // no member in query — keep placeholders (you can set defaults here)
       setCurrentMemberId(null)
       setCurrentMemberName('')
       setDomainName('')
     }
 
-    // default memberSince already set; you can change if you fetch a profile object
-    // boardTasks, eventsList, attendanceState remain empty unless you populate them via props/API
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memberFromQuery])
+    // if you later want to populate boardTasks/events from an API or parent prop, do it here
+    // leaving boardTasks/events empty (in-memory) avoids any SSR/localStorage usage
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // completed tasks (in-memory)
   const completedTasks = useMemo(() => {
@@ -82,7 +88,6 @@ export default function ProfilePage() {
   }, [currentMemberId, currentMemberName, ALL_MEMBERS])
 
   const handleLogout = () => {
-    // navigate to login; you may want to clear auth cookies / context if used
     router.push('/login')
   }
 
@@ -104,7 +109,8 @@ export default function ProfilePage() {
     const trimmed = (draftBio || '').trim()
     setBio(trimmed)
     setIsEditingBio(false)
-    // NOTE: no persistence — if you want persistence, save via API or to a prop-managed state
+    // NOTE: no persistence here (you asked to remove localStorage). If you want server or parent persistence,
+    // expose a callback prop or call your API here.
   }
 
   return (

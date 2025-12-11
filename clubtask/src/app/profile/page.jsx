@@ -2,102 +2,55 @@
 
 import MainLayout from '@/components/MainLayout'
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { DOMAINS } from '@/data/domains' // adjust path if needed
 
 export default function ProfilePage() {
   const router = useRouter()
+  const search = useSearchParams()
+  const memberFromQuery = search?.get('member') || null
 
-  const [currentMemberId, setCurrentMemberId] = useState(null)
-  const [currentMemberName, setCurrentMemberName] = useState(null)
+  const [currentMemberId, setCurrentMemberId] = useState(memberFromQuery)
+  const [currentMemberName, setCurrentMemberName] = useState('')
   const [email, setEmail] = useState('')
   const [position, setPosition] = useState('Member')
   const [domainName, setDomainName] = useState('')
   const [bio, setBio] = useState('')
-  const [memberSince, setMemberSince] = useState('')
+  const [memberSince, setMemberSince] = useState((new Date()).getFullYear().toString())
 
-  const [boardTasks, setBoardTasks] = useState([])
-  const [eventsList, setEventsList] = useState([])
-  const [attendanceState, setAttendanceState] = useState({})
+  const [boardTasks, setBoardTasks] = useState([])      // keep in-memory lists (you can populate from props or API)
+  const [eventsList, setEventsList] = useState([])      // same as above
+  const [attendanceState, setAttendanceState] = useState({}) // same as above
 
-  // bio edit UI state
+  // bio edit UI state (in-memory only)
   const [isEditingBio, setIsEditingBio] = useState(false)
   const [draftBio, setDraftBio] = useState('')
 
+  // flatten members for lookups
   const ALL_MEMBERS = DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name })))
 
   useEffect(() => {
-    // detect signed member from common keys
-    const tryKeys = ['currentMemberId', 'memberId', 'userId', 'username', 'currentUserId']
-    let found = null
-    for (const k of tryKeys) {
-      const v = localStorage.getItem(k)
-      if (!v) continue
-      const byId = ALL_MEMBERS.find(m => m.id === v)
-      if (byId) { found = byId; break }
-      const byName = ALL_MEMBERS.find(m => m.name.toLowerCase() === v.toLowerCase())
-      if (byName) { found = byName; break }
-      try {
-        const parsed = JSON.parse(v)
-        if (parsed && (parsed.id || parsed.memberId)) {
-          const id = parsed.id || parsed.memberId
-          const mm = ALL_MEMBERS.find(x => x.id === id)
-          if (mm) { found = mm; break }
-        }
-      } catch {}
-    }
-
-    const storedName = localStorage.getItem('profileName') || localStorage.getItem('name')
-    const storedEmail = localStorage.getItem('email') || localStorage.getItem('profileEmail')
-    const storedPosition = localStorage.getItem('position') || localStorage.getItem('profilePosition')
-    const storedDomain = localStorage.getItem('domain') || localStorage.getItem('profileDomain')
-    const storedBio = localStorage.getItem('bio') || localStorage.getItem('profileBio')
-    const storedSince = localStorage.getItem('memberSince')
-
-    if (found) {
-      setCurrentMemberId(found.id)
-      setCurrentMemberName(found.name)
-      setDomainName(found.domain)
+    // If member id provided via query, pick it and fill basic fields from DOMAINS (no localStorage)
+    if (memberFromQuery) {
+      setCurrentMemberId(memberFromQuery)
+      const found = ALL_MEMBERS.find(m => m.id === memberFromQuery)
+      if (found) {
+        setCurrentMemberName(found.name)
+        setDomainName(found.domain)
+      }
     } else {
-      if (storedName) setCurrentMemberName(storedName)
-      if (storedDomain) setDomainName(storedDomain)
+      // No member provided — keep placeholders or you can set defaults here
+      setCurrentMemberId(null)
+      setCurrentMemberName('')
+      setDomainName('')
     }
 
-    if (storedEmail) setEmail(storedEmail)
-    if (storedPosition) setPosition(storedPosition || 'Member')
-    if (storedBio) setBio(storedBio)
-    else setBio(localStorage.getItem('profileBio') || '')
+    // default memberSince already set; you can change if you fetch a profile object
+    // boardTasks, eventsList, attendanceState remain empty unless you populate them via props/API
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberFromQuery])
 
-    setMemberSince(storedSince || (new Date()).getFullYear().toString())
-
-    // load board tasks
-    try {
-      const rawTasks = localStorage.getItem('boardTasks')
-      const tasks = rawTasks ? JSON.parse(rawTasks) : []
-      setBoardTasks(tasks)
-    } catch (e) { console.warn(e); setBoardTasks([]) }
-
-    // load events + attendance maps
-    try {
-      const raw = localStorage.getItem('events')
-      const ev = raw ? JSON.parse(raw) : []
-      setEventsList(ev)
-
-      const state = {}
-      ev.forEach(e => {
-        try {
-          const rawA = localStorage.getItem(`attendance-${e.id}`)
-          state[e.id] = rawA ? JSON.parse(rawA) : {}
-        } catch {
-          state[e.id] = {}
-        }
-      })
-      setAttendanceState(state)
-    } catch (e) { console.warn(e); setEventsList([]); setAttendanceState({}) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // tasks completed list & count (done column)
+  // completed tasks (in-memory)
   const completedTasks = useMemo(() => {
     if (!currentMemberId) return []
     return boardTasks.filter(t => t.assignee === currentMemberId && (t.columnId === 'done' || t.columnId === 'DEPLOYED'))
@@ -105,7 +58,7 @@ export default function ProfilePage() {
 
   const tasksCompletedCount = completedTasks.length
 
-  // events attended count
+  // events attended count (in-memory)
   const eventsAttended = useMemo(() => {
     if (!currentMemberId) return 0
     let count = 0
@@ -129,6 +82,7 @@ export default function ProfilePage() {
   }, [currentMemberId, currentMemberName, ALL_MEMBERS])
 
   const handleLogout = () => {
+    // navigate to login; you may want to clear auth cookies / context if used
     router.push('/login')
   }
 
@@ -137,11 +91,10 @@ export default function ProfilePage() {
     return name.split(' ').map(s => s[0]).slice(0,2).join('').toUpperCase()
   }
 
-  // Bio editing handlers
+  // Bio editing handlers (memory only)
   const startEditBio = () => {
     setDraftBio(bio || '')
     setIsEditingBio(true)
-    // focus will be handled by browser automatically if user clicks
   }
   const cancelEditBio = () => {
     setDraftBio('')
@@ -150,8 +103,8 @@ export default function ProfilePage() {
   const saveBio = () => {
     const trimmed = (draftBio || '').trim()
     setBio(trimmed)
-    localStorage.setItem('bio', trimmed)
     setIsEditingBio(false)
+    // NOTE: no persistence — if you want persistence, save via API or to a prop-managed state
   }
 
   return (
@@ -159,25 +112,26 @@ export default function ProfilePage() {
       <div className="p-4 sm:p-8 max-w-6xl mx-auto">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-3">
           <h2 className="text-2xl sm:text-3xl font-bold text-white">MY PROFILE</h2>
-          
-          <div className="mt-4 md:mt-0 md:w-50">
-              <button onClick={handleLogout} className="w-full bg-red-900/50 hover:bg-red-900/70 border border-red-500 text-red-400 font-bold py-2 px-4 rounded">[ LOG OUT ]</button>
-           </div>
+          <div className="text-sm text-gray-400">Overview of your activity</div>
         </div>
 
         {/* Upper: expanded profile card with completed tasks replacing the three boxes */}
         <div className="bg-gray-900/30 border border-green-900/50 rounded-lg p-6 mb-6">
           <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
             <div className="w-24 h-24 rounded-full bg-green-800 flex items-center justify-center text-white text-3xl font-bold">
-              {initials(currentMemberName || localStorage.getItem('profileName') || 'US')}
+              {initials(currentMemberName || 'US')}
             </div>
 
             <div className="flex-1">
-              <div className="text-white text-xl font-semibold">{currentMemberName || localStorage.getItem('profileName') || 'Unknown User'}</div>
-              <div className="text-sm text-gray-400 mt-1">{email || localStorage.getItem('email') || 'no-email@local'}</div>
-              <div className="text-xs text-gray-400 mt-2">Domain: <span className="text-white ml-1">{domainName || localStorage.getItem('domain') || '—'}</span></div>
+              <div className="text-white text-xl font-semibold">{currentMemberName || 'Unknown User'}</div>
+              <div className="text-sm text-gray-400 mt-1">{email || ''}</div>
+              <div className="text-xs text-gray-400 mt-2">Domain: <span className="text-white ml-1">{domainName || '—'}</span></div>
               <div className="text-xs text-gray-400 mt-1">Position: <span className="text-white ml-1">{position || 'Member'}</span></div>
               <div className="text-xs text-gray-400 mt-1">Member since: <span className="text-white ml-1">{memberSince}</span></div>
+            </div>
+
+            <div className="mt-4 md:mt-0 md:w-56">
+              <button onClick={handleLogout} className="w-full bg-red-900/50 hover:bg-red-900/70 border border-red-500 text-red-400 font-bold py-2 px-4 rounded">[ LOG OUT ]</button>
             </div>
           </div>
 
@@ -196,7 +150,7 @@ export default function ProfilePage() {
             </div>
 
             {!isEditingBio ? (
-              <div className="mt-2 text-gray-200 rounded-lg bg-gray-800/20 p-3">{bio || localStorage.getItem('bio') || 'No bio provided.'}</div>
+              <div className="mt-2 text-gray-200 rounded-lg bg-gray-800/20 p-3">{bio || 'No bio provided.'}</div>
             ) : (
               <textarea
                 value={draftBio}

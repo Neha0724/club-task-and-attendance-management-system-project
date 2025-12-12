@@ -3,21 +3,50 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Header from '@/components/Header'
+import { authFetch } from '@/lib/ClientFetch'
 
 export default function LoginPage() {
   const router = useRouter()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  
 
-  const handleLoginAs = (role) => {
-    // save role in localStorage (frontend only)
-    try {
-      localStorage.setItem('userRole', role)
-    } catch (e) {
-      console.warn('Could not access localStorage', e)
+  // If user provides credentials, call backend; otherwise fall back to quick role selection
+  const handleLoginAs = async (role) => {
+    // If username/password provided -> attempt real login
+    if (username.trim() && password.trim()) {
+      try {
+          const res = await authFetch("/api/login", {
+          method: "POST",
+          body: JSON.stringify({ username, password })
+        });
+
+        const json = await res.json().catch(() => null)
+        if (!res.ok) {
+          // backend returned error — show it and stop
+          return alert(json?.error || 'Login failed (backend)')
+        }
+        // success: save token + user info + role
+        if (json.token) localStorage.setItem('token', json.token)
+        if (json.user?.id) localStorage.setItem('userId', json.user.id)
+        // detect role from returned user object (fallback to passed role)
+        const resolvedRole = (json.user?.position || '').toLowerCase().includes('lead') ? 'lead' : (role || 'member')
+        localStorage.setItem('userRole', resolvedRole)
+        // redirect accordingly
+        if (resolvedRole === 'lead') router.push('/domains')
+        else router.push('/board')
+        return
+      } catch (e) {
+        console.warn('Login request failed', e)
+        return alert('Network error during login')
+      }
     }
 
-    // redirect to board
+    // Fallback quick behaviour (keeps your previous behaviour if creds not provided)
+    try { 
+      localStorage.setItem('userRole', role) 
+    } 
+    catch (e) { console.warn('localStorage error', e) }
     router.push('/board')
   }
 
@@ -42,7 +71,7 @@ export default function LoginPage() {
                 <label className="block text-white mb-2 font-bold">USERNAME</label>
                 <input
                   type="text"
-                  placeholder="> enter_username..."
+                  placeholder="> enter_username (email) ..."
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full bg-black/50 border-2 border-green-500 rounded px-4 py-3 text-green-400 placeholder-green-700 focus:outline-none focus:border-green-400 transition-colors"
@@ -64,15 +93,13 @@ export default function LoginPage() {
                 <button
                   onClick={() => handleLoginAs('lead')}
                   className="flex-1 bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-6 rounded transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-green-500/50"
-                >
-                  <span>👑</span> [ AS A LEAD ]
+                >[ AS A LEAD ]
                 </button>
 
                 <button
                   onClick={() => handleLoginAs('member')}
                   className="flex-1 bg-green-500 hover:bg-green-600 text-black font-bold py-3 px-6 rounded transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-green-500/50"
-                >
-                  <span>👤</span> [ AS A MEMBER ]
+                >[ AS A MEMBER ]
                 </button>
               </div>
 

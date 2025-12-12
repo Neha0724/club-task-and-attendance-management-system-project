@@ -1,6 +1,7 @@
 'use client'
 
 import MainLayout from '@/components/MainLayout'
+import { authFetch } from '@/lib/ClientFetch' // make sure this file exists
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { DOMAINS } from '@/data/domains' // adjust path if needed
@@ -16,7 +17,7 @@ export default function ProfilePage() {
   const [bio, setBio] = useState('')
   const [memberSince, setMemberSince] = useState((new Date()).getFullYear().toString())
 
-  const [boardTasks, setBoardTasks] = useState([])      // in-memory, populate from props/API if needed
+  const [boardTasks, setBoardTasks] = useState([])      // in-memory, populated from API or fallback
   const [eventsList, setEventsList] = useState([])      // in-memory
   const [attendanceState, setAttendanceState] = useState({}) // in-memory
 
@@ -45,16 +46,91 @@ export default function ProfilePage() {
         setDomainName('')
       }
     } else {
-      // no member in query — keep placeholders (you can set defaults here)
+      // no member in query — keep placeholders
       setCurrentMemberId(null)
       setCurrentMemberName('')
       setDomainName('')
     }
 
-    // if you later want to populate boardTasks/events from an API or parent prop, do it here
-    // leaving boardTasks/events empty (in-memory) avoids any SSR/localStorage usage
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // -----------------------------
+  // NEW: load tasks/events/attendance from backend (authFetch) with localStorage fallback
+  // runs on mount and whenever currentMemberId changes
+  // -----------------------------
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        // 1) board tasks: if member specified, fetch assigned tasks; otherwise fetch all tasks
+        if (currentMemberId) {
+          try {
+            const tRes = await authFetch(`/api/tasks?assignee=${encodeURIComponent(currentMemberId)}`)
+            if (mounted && tRes.ok && Array.isArray(tRes.data)) {
+              setBoardTasks(tRes.data)
+            } else {
+              const rawTasks = localStorage.getItem('boardTasks')
+              if (mounted) setBoardTasks(rawTasks ? JSON.parse(rawTasks) : [])
+            }
+          } catch (err) {
+            console.warn('tasks fetch failed', err)
+            const rawTasks = localStorage.getItem('boardTasks')
+            if (mounted) setBoardTasks(rawTasks ? JSON.parse(rawTasks) : [])
+          }
+        } else {
+          // no member: try fetch all tasks
+          try {
+            const allRes = await authFetch('/api/tasks')
+            if (mounted && allRes.ok && Array.isArray(allRes.data)) setBoardTasks(allRes.data)
+            else {
+              const raw = localStorage.getItem('boardTasks'); if (mounted) setBoardTasks(raw ? JSON.parse(raw) : [])
+            }
+          } catch (err) {
+            const raw = localStorage.getItem('boardTasks'); if (mounted) setBoardTasks(raw ? JSON.parse(raw) : [])
+          }
+        }
+
+        // 2) events list
+        let ev = []
+        try {
+          const evRes = await authFetch('/api/events')
+          if (mounted && evRes.ok && Array.isArray(evRes.data)) {
+            ev = evRes.data
+            setEventsList(ev)
+          } else {
+            const rawE = localStorage.getItem('events'); ev = rawE ? JSON.parse(rawE) : []
+            if (mounted) setEventsList(ev)
+          }
+        } catch (err) {
+          console.warn('events fetch failed', err)
+          const rawE = localStorage.getItem('events'); ev = rawE ? JSON.parse(rawE) : []
+          if (mounted) setEventsList(ev)
+        }
+
+        // 3) for each event, load attendance map (backend or fallback)
+        const state = {}
+        for (const e of ev) {
+          try {
+            const aRes = await authFetch(`/api/attendance?eventId=${encodeURIComponent(e.id)}`)
+            if (aRes.ok) state[e.id] = aRes.data || {}
+            else {
+              const rawA = localStorage.getItem(`attendance-${e.id}`)
+              state[e.id] = rawA ? JSON.parse(rawA) : {}
+            }
+          } catch (err) {
+            const rawA = localStorage.getItem(`attendance-${e.id}`)
+            state[e.id] = rawA ? JSON.parse(rawA) : {}
+          }
+        }
+        if (mounted) setAttendanceState(state)
+      } catch (err) {
+        console.warn('profile data load error', err)
+      }
+    })()
+
+    return () => { mounted = false }
+  }, [currentMemberId])
 
   // completed tasks (in-memory)
   const completedTasks = useMemo(() => {
@@ -109,8 +185,7 @@ export default function ProfilePage() {
     const trimmed = (draftBio || '').trim()
     setBio(trimmed)
     setIsEditingBio(false)
-    // NOTE: no persistence here (you asked to remove localStorage). If you want server or parent persistence,
-    // expose a callback prop or call your API here.
+    // NOTE: no persistence here (you asked to remove localStorage).
   }
 
   return (

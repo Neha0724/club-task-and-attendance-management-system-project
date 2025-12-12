@@ -1,5 +1,6 @@
 'use client'
 
+import { authFetch } from '@/lib/ClientFetch'
 import { useEffect, useMemo, useState } from 'react'
 import MainLayout from '@/components/MainLayout'
 import { DOMAINS } from '@/data/domains' // adjust path if needed
@@ -34,41 +35,51 @@ export default function AttendancePage() {
 
   // load role, events, attendance, and current member
   useEffect(() => {
-    setUserRole(localStorage.getItem('userRole') || 'member')
+  setUserRole(localStorage.getItem('userRole') || 'member')
 
+  ;(async () => {
     try {
-      const rawE = localStorage.getItem('events'); const ev = rawE ? JSON.parse(rawE) : []
-      setEvents(ev)
+      const res = await authFetch('/api/events')
+      let ev = []
+      if (res.ok && Array.isArray(res.data)) {
+        ev = res.data
+        setEvents(ev)
+      } else {
+        const rawE = localStorage.getItem('events'); ev = rawE ? JSON.parse(rawE) : []
+        setEvents(ev)
+      }
+
       const state = {}
-      ev.forEach(e => {
-        try { const rawA = localStorage.getItem(`attendance-${e.id}`); state[e.id] = rawA ? JSON.parse(rawA) : null } catch { state[e.id] = null }
-      })
+      for (const e of ev) {
+        try {
+          const ares = await authFetch(`/api/attendance?eventId=${encodeURIComponent(e.id)}`)
+          if (ares.ok) state[e.id] = ares.data || null
+          else {
+            const rawA = localStorage.getItem(`attendance-${e.id}`)
+            state[e.id] = rawA ? JSON.parse(rawA) : null
+          }
+        } catch {
+          const rawA = localStorage.getItem(`attendance-${e.id}`)
+          state[e.id] = rawA ? JSON.parse(rawA) : null
+        }
+      }
       setAttendanceState(state)
     } catch (e) {
-      console.warn(e)
-      setEvents([]); setAttendanceState({})
+      console.warn('attendance load failed', e)
+      // fallback existing logic
+      try {
+        const rawE = localStorage.getItem('events'); const ev = rawE ? JSON.parse(rawE) : []
+        setEvents(ev)
+        const state = {}
+        ev.forEach(e => {
+          try { const rawA = localStorage.getItem(`attendance-${e.id}`); state[e.id] = rawA ? JSON.parse(rawA) : null } catch { state[e.id] = null }
+        })
+        setAttendanceState(state)
+      } catch (e2) { console.warn(e2); setEvents([]); setAttendanceState({}) }
     }
+  })()
+}, [])
 
-    // try to detect signed-in member
-    const tryKeys = ['currentMemberId','memberId','userId','username','currentUserId']
-    for (const k of tryKeys) {
-      const v = localStorage.getItem(k); if (!v) continue
-      const byId = ALL_MEMBERS.find(m => m.id === v)
-      if (byId) { setCurrentMemberId(byId.id); setCurrentMemberName(byId.name); break }
-      const byName = ALL_MEMBERS.find(m => m.name.toLowerCase() === v.toLowerCase())
-      if (byName) { setCurrentMemberId(byName.id); setCurrentMemberName(byName.name); break }
-      try { const parsed = JSON.parse(v); if (parsed && (parsed.id || parsed.memberId)) {
-        const id = parsed.id || parsed.memberId; const mm = ALL_MEMBERS.find(x=>x.id===id); if (mm) { setCurrentMemberId(mm.id); setCurrentMemberName(mm.name); break }
-      }} catch {}
-    }
-
-    // fallback: stored currentMemberId saved earlier
-    if (!currentMemberId) {
-      const cm = localStorage.getItem('currentMemberId'); const cn = localStorage.getItem('currentMemberName')
-      if (cm) { setCurrentMemberId(cm); setCurrentMemberName(cn || (ALL_MEMBERS.find(m => m.id === cm)?.name)) }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // member-specific log
   const myLog = useMemo(() => {

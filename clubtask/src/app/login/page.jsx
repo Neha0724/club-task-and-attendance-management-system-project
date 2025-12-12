@@ -10,49 +10,60 @@ export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   
+const handleLoginAs = async (role) => {
+  // if username/password provided -> real login
+  if (username.trim() && password.trim()) {
+    try {
+      // send email (backend expects email)
+      const res = await authFetch('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email: username.trim(), password: password.trim() })
+      });
 
-  // If user provides credentials, call backend; otherwise fall back to quick role selection
-  const handleLoginAs = async (role) => {
-    // If username/password provided -> attempt real login
-    if (username.trim() && password.trim()) {
-      try {
-          const res = await authFetch("/api/login", {
-          method: "POST",
-          body: JSON.stringify({ username, password })
-        });
-
-        const json = await res.json().catch(() => null)
-        if (!res.ok) {
-          // backend returned error — show it and stop
-          return alert(json?.error || 'Login failed (backend)')
-        }
-        // success: save token + user info + role
-        if (json.token) localStorage.setItem('token', json.token)
-        if (json.user?.id) localStorage.setItem('userId', json.user.id)
-        // detect role from returned user object (fallback to passed role)
-        const resolvedRole = (json.user?.position || '').toLowerCase().includes('lead') ? 'lead' : (role || 'member')
-        localStorage.setItem('userRole', resolvedRole)
-        // redirect accordingly
-        if (resolvedRole === 'lead') router.push('/domains')
-        else router.push('/board')
-        return
-      } catch (e) {
-        console.warn('Login request failed', e)
-        return alert('Network error during login')
+      if (!res.ok) {
+        const errMsg = res.data?.error || res.data?.message || 'Login failed';
+        return alert(errMsg);
       }
+
+      const json = res.data || {};
+      if (json.token) localStorage.setItem('token', json.token);
+      if (json.user?.id) localStorage.setItem('userId', json.user.id);
+
+      const resolvedRole = (json.user?.position || '').toLowerCase().includes('lead') ? 'lead' : (role || 'member');
+      localStorage.setItem('userRole', resolvedRole);
+
+      // mirror existing localStorage profile fields so other pages don't break
+      if (json.user) {
+        localStorage.setItem('profileName', json.user.name || '');
+        localStorage.setItem('email', json.user.email || '');
+        localStorage.setItem('position', json.user.position || '');
+        localStorage.setItem('domain', json.user.domain || '');
+      }
+
+      if (resolvedRole === 'lead') router.push('/domains');
+      else router.push('/board');
+      return;
+    } catch (e) {
+      console.warn('Login request failed', e);
+      return alert('Network error during login');
     }
-
-    // Fallback quick behaviour (keeps your previous behaviour if creds not provided)
-    try { 
-      localStorage.setItem('userRole', role) 
-    } 
-    catch (e) { console.warn('localStorage error', e) }
-    router.push('/board')
   }
 
-  const handleSignUp = () => {
-    router.push('/signup')
+  // fallback quick behaviour if creds not provided
+  try { localStorage.setItem('userRole', role); } catch (e) { console.warn(e); }
+  router.push('/board');
+}
+
+const handleSignUp = () => {
+  try {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userRole');
+  } catch (err) {
+    console.warn('Could not clear old auth data', err);
   }
+  router.push('/signup');
+}
 
   return (
     <div className="min-h-screen bg-linear-to-r from-gray-900 via-black to-gray-900">

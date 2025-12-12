@@ -14,26 +14,63 @@ export default function SignUpPage() {
   const [position, setPosition] = useState('')
   const [password, setPassword] = useState('')
 
-  const handleSignup = () => {
-    if (!username.trim()) return alert('Enter username')
-    if (!email.trim()) return alert('Enter email')
-    // Save minimal profile to localStorage so other pages can pick it up
-    const memberId = uid('m-')
-    localStorage.setItem('profileName', username.trim())
-    localStorage.setItem('email', email.trim())
-    localStorage.setItem('position', position || 'Member')
-    localStorage.setItem('domain', domain || '')
-    localStorage.setItem('memberSince', new Date().getFullYear().toString())
-    localStorage.setItem('profileBio', '')
-    // role: lead if position === 'Lead', else member
-    localStorage.setItem('userRole', (position === 'Lead' || position === 'lead') ? 'lead' : 'member')
-    // store a currentMemberId so profile/attendance detection works
-    localStorage.setItem('currentMemberId', memberId)
-    // also store a simple account object (frontend-only)
-    localStorage.setItem('account-' + memberId, JSON.stringify({ id: memberId, name: username.trim(), email: email.trim(), position: position || 'Member', domain: domain || '' }))
-    // navigate to board
-    router.push('/board')
+const handleSignup = async () => {
+  if (!username.trim()) return alert('Enter username');
+  if (!email.trim()) return alert('Enter email');
+  if (!password.trim()) return alert('Enter password');
+
+  const payload = {
+    name: username.trim(),
+    email: email.trim(),
+    password: password.trim(),
+    position: position || 'Member',
+    domain: domain || ''
+  };
+
+  console.log('[SIGNUP DEBUG] payload ->', payload);
+
+  try {
+    // change this URL if your route path is different (e.g. /api/auth/register)
+    const url = '/api/auth/signup';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    console.log('[SIGNUP DEBUG] raw response', res);
+    const text = await res.text().catch(()=>null);
+    console.log('[SIGNUP DEBUG] response text', text);
+
+    // if response is JSON, parse it
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(e) { data = { raw: text }; }
+
+    if (!res.ok) {
+      console.warn('[SIGNUP DEBUG] server returned error', res.status, data);
+      return alert(data?.error || data?.message || `Signup failed (${res.status})`);
+    }
+
+    // success
+    console.log('[SIGNUP DEBUG] signup success', data);
+    if (data.token) localStorage.setItem('token', data.token);
+    if (data.user?.id) localStorage.setItem('userId', data.user.id);
+    // mirror localStorage used by rest of app
+    localStorage.setItem('profileName', data.user?.name || username.trim());
+    localStorage.setItem('email', data.user?.email || email.trim());
+    localStorage.setItem('position', data.user?.position || position || 'Member');
+    localStorage.setItem('domain', data.user?.domain || domain || '');
+    localStorage.setItem('userRole', (data.user?.position || position || '').toLowerCase().includes('lead') ? 'lead' : 'member');
+
+    // redirect
+    const resolvedRole = (data.user?.position || position || '').toLowerCase().includes('lead') ? 'lead' : 'member';
+    if (resolvedRole === 'lead') router.push('/domains'); else router.push('/board');
+
+  } catch (err) {
+    console.error('[SIGNUP DEBUG] fetch threw', err);
+    alert('Network error during signup — check console and server logs');
   }
+}
 
   return (
     <div className="min-h-screen bg-linear-to-r from-gray-900 via-black to-gray-900">

@@ -3,9 +3,8 @@
 import MainLayout from '@/components/MainLayout'
 import { useEffect, useState } from 'react'
 import { authFetch } from '@/lib/ClientFetch'
-import { DOMAINS } from '@/data/domains' // fallback if /api/members not present
+import { DOMAINS } from '@/data/domains'
 
-// Format server ISO dates into "MMM DD"
 function fmtDate(iso) {
   if (!iso) return ''
   const d = new Date(iso)
@@ -29,34 +28,28 @@ function Overlay({ open, onClose, title, width = 'w-full sm:max-w-lg', children 
 export default function EventsPage() {
   const [role, setRole] = useState('member')
   const [events, setEvents] = useState([])
-  const [attendanceState, setAttendanceState] = useState({}) // { eventId(normalized): { memberId: status } }
-
-  const [membersList, setMembersList] = useState([]) // DB members preferred; fallback to DOMAINS
-
+  const [attendanceState, setAttendanceState] = useState({})
+  const [membersList, setMembersList] = useState([])
   const [openCreate, setOpenCreate] = useState(false)
-  const [openAttendFor, setOpenAttendFor] = useState(null) // normalized event id
+  const [openAttendFor, setOpenAttendFor] = useState(null)
   const [openDescFor, setOpenDescFor] = useState(null)
-
   const [editingAttendance, setEditingAttendance] = useState({})
-
   const [name, setName] = useState('')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
   const [venue, setVenue] = useState('')
   const [desc, setDesc] = useState('')
 
-  // Load members, role, events & attendance on mount
   useEffect(() => {
     setRole(localStorage.getItem('userRole') || 'member')
 
     ;(async () => {
-      // 1) Members list (try DB first)
+      // 1) Members list
       try {
         const mr = await authFetch('/api/members')
         if (mr && mr.ok && Array.isArray(mr.data) && mr.data.length) {
           setMembersList(mr.data.map(m => ({ id: String(m._id || m.id), name: m.name || m.email || 'Unknown', domain: m.domain || '' })))
         } else {
-          // fallback to DOMAINS static list
           setMembersList(DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name }))))
         }
       } catch (err) {
@@ -67,16 +60,13 @@ export default function EventsPage() {
       // 2) Events + attendance
       try {
         const res = await authFetch('/api/events')
-
         let rawEvents = []
         if (res && res.ok && Array.isArray(res.data)) rawEvents = res.data
         else {
-          // fallback to localStorage events
           const stored = localStorage.getItem('events')
           rawEvents = stored ? JSON.parse(stored) : []
         }
 
-        // normalize events so each has id (prefer _id)
         const normalized = rawEvents.map(e => ({
           id: String(e._id || e.id || Math.random()),
           title: e.title || e.name || '',
@@ -89,15 +79,12 @@ export default function EventsPage() {
         }))
         setEvents(normalized)
 
-        // fetch attendance for each event and normalize into map keyed by normalized event id
         const state = {}
         for (const ev of normalized) {
           try {
-            // prefer raw._id when querying server
             const queryId = ev.raw && (ev.raw._id || ev.raw.id) ? (ev.raw._id || ev.raw.id) : ev.id
             const ares = await authFetch(`/api/attendance?eventId=${queryId}`)
             if (ares && ares.ok && Array.isArray(ares.data)) {
-              // convert array of attendance docs -> { memberId: status }
               const map = {}
               ares.data.forEach(a => {
                 const memberId = a.member && typeof a.member === 'object' ? String(a.member._id || a.member.id) : String(a.member || a.memberId || a.member_id || '')
@@ -111,7 +98,6 @@ export default function EventsPage() {
           } catch (err) {
             console.warn('attendance fetch failed for', ev.id, err)
           }
-          // fallback localStorage
           try {
             const rawA = localStorage.getItem(`attendance-${ev.id}`)
             state[ev.id] = rawA ? JSON.parse(rawA) : {}
@@ -138,7 +124,7 @@ export default function EventsPage() {
       }
       const res = await authFetch('/api/tasks', { method: 'POST', body: JSON.stringify(payload) })
       if (res && res.ok && res.data) return res.data
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
     return null
   }
 
@@ -190,15 +176,11 @@ export default function EventsPage() {
     } catch (err) {
       console.warn('delete failed', err)
     }
-    // optimistic local removal if server fails
     setEvents(prev => prev.filter(e => e.id !== id))
   }
 
-  // Open attendance editor: load attendance for event & prepare editingAttendance keyed by DB member ids
   const openAttendanceEditor = async (eventId) => {
     if (role !== 'lead') return
-
-    // prefer using previously fetched attendanceState if available
     const existing = attendanceState[eventId] || {}
 
     try {
@@ -232,7 +214,7 @@ export default function EventsPage() {
     setOpenAttendFor(eventId)
   }
 
-  // Save attendance: send bulk attendance map keyed by DB member ids
+  // Save attendance
   const saveAttendance = async (eventId) => {
     if (role !== 'lead') return
     if (!editingAttendance || typeof editingAttendance !== 'object') return
@@ -246,7 +228,6 @@ export default function EventsPage() {
         body: JSON.stringify({ eventId: eventQueryId, attendance: editingAttendance })
       })
 
-      // If server returns upserted docs array, normalize it; otherwise use editingAttendance
       let newMap = {}
       if (res && res.ok && Array.isArray(res.data) && res.data.length) {
         res.data.forEach(d => {
@@ -254,11 +235,9 @@ export default function EventsPage() {
           if (mid) newMap[mid] = d.status || d.attendance || (d.present ? 'present' : 'absent')
         })
       } else {
-        // server didn't return docs — fallback to editingAttendance
         newMap = { ...editingAttendance }
       }
 
-      // store under normalized event id
       setAttendanceState(prev => ({ ...prev, [eventId]: newMap }))
       try { localStorage.setItem(`attendance-${eventId}`, JSON.stringify(newMap)) } catch {}
       setOpenAttendFor(null)
@@ -266,7 +245,6 @@ export default function EventsPage() {
       return
     } catch (err) {
       console.error('saveAttendance failed', err)
-      // fallback local update for UX
       setAttendanceState(prev => ({ ...prev, [eventId]: { ...editingAttendance } }))
       try { localStorage.setItem(`attendance-${eventId}`, JSON.stringify(editingAttendance)) } catch {}
       setOpenAttendFor(null)

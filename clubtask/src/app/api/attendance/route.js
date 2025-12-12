@@ -10,11 +10,9 @@ export async function POST(req) {
     if (error) return new Response(JSON.stringify({ error }), { status: 401 })
 
     const body = await req.json()
-    // Accept two shapes: { eventId, memberId, status } or { eventId, attendance: { memberId: status } }
     const { eventId, memberId, status, attendance } = body
 
     if (attendance && typeof attendance === 'object') {
-      // bulk upsert
       const results = []
       for (const [mId, s] of Object.entries(attendance)) {
         if (!mongoose.Types.ObjectId.isValid(mId)) continue
@@ -58,7 +56,7 @@ export async function GET(req) {
       return new Response(JSON.stringify(data), { status: 200 })
     }
 
-    // fallback: all (admin)
+    // fallback
     const all = await Attendance.find({}).populate('member event').lean()
     return new Response(JSON.stringify(all), { status: 200 })
   } catch (err) {

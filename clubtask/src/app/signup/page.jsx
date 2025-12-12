@@ -4,8 +4,6 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Header from '@/components/Header'
 
-const uid = (prefix = '') => prefix + Date.now().toString(36).slice(-6)
-
 export default function SignUpPage() {
   const router = useRouter()
   const [username, setUsername] = useState('')
@@ -14,7 +12,7 @@ export default function SignUpPage() {
   const [position, setPosition] = useState('')
   const [password, setPassword] = useState('')
 
-const handleSignup = async () => {
+  const handleSignup = async () => {
   if (!username.trim()) return alert('Enter username');
   if (!email.trim()) return alert('Enter email');
   if (!password.trim()) return alert('Enter password');
@@ -30,7 +28,6 @@ const handleSignup = async () => {
   console.log('[SIGNUP DEBUG] payload ->', payload);
 
   try {
-    // change this URL if your route path is different (e.g. /api/auth/register)
     const url = '/api/auth/signup';
     const res = await fetch(url, {
       method: 'POST',
@@ -42,7 +39,6 @@ const handleSignup = async () => {
     const text = await res.text().catch(()=>null);
     console.log('[SIGNUP DEBUG] response text', text);
 
-    // if response is JSON, parse it
     let data = {};
     try { data = text ? JSON.parse(text) : {}; } catch(e) { data = { raw: text }; }
 
@@ -51,11 +47,9 @@ const handleSignup = async () => {
       return alert(data?.error || data?.message || `Signup failed (${res.status})`);
     }
 
-    // success
     console.log('[SIGNUP DEBUG] signup success', data);
     if (data.token) localStorage.setItem('token', data.token);
     if (data.user?.id) localStorage.setItem('userId', data.user.id);
-    // mirror localStorage used by rest of app
     localStorage.setItem('profileName', data.user?.name || username.trim());
     localStorage.setItem('email', data.user?.email || email.trim());
     localStorage.setItem('position', data.user?.position || position || 'Member');
@@ -121,13 +115,13 @@ const handleSignup = async () => {
                 />
               </div>
 
-              {/* Domain select (separate) */}
+              {/* Domain select */}
               <div>
                 <label className="block text-white mb-2 font-bold">DOMAIN</label>
                 <select
                   value={domain}
                   onChange={(e) => setDomain(e.target.value)}
-                  className="w-full bg-black/50 border-2 border-green-700 rounded px-4 py-3 text-green-400 focus:outline-none focus:border-green-500 transition-colors"
+                  className="w-full bg-black/50 border-2 border-green-700 rounded px-4 py-3 text-green-900 focus:outline-none focus:border-green-500 transition-colors"
                 >
                   <option value="">Select domain</option>
                   <option value="Technical">Technical</option>
@@ -138,13 +132,13 @@ const handleSignup = async () => {
                 </select>
               </div>
 
-              {/* Position select (separate) */}
+              {/* Position select */}
               <div>
                 <label className="block text-white mb-2 font-bold">POSITION</label>
                 <select
                   value={position}
                   onChange={(e) => setPosition(e.target.value)}
-                  className="w-full bg-black/50 border-2 border-green-700 rounded px-4 py-3 text-green-400 focus:outline-none focus:border-green-500 transition-colors"
+                  className="w-full bg-black/50 border-2 border-green-700 rounded px-4 py-3 text-green-900 focus:outline-none focus:border-green-500 transition-colors"
                 >
                   <option value="">Select position</option>
                   <option value="President">President</option>

@@ -45,7 +45,7 @@ export async function POST(req) {
     return new Response(JSON.stringify({ user: userResp, token }), { status: 201 })
   } catch (err) {
     console.error('[SIGNUP] unexpected error', err && err.stack ? err.stack : err)
-    // detect common mongoose validation / duplicate error
+    
     if (err && err.code === 11000) {
       return new Response(JSON.stringify({ error: 'Duplicate key error' }), { status: 409 })
     }

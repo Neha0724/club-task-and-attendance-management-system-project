@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import MainLayout from '@/components/MainLayout'
-import { authFetch } from '@/lib/ClientFetch' // ensure this helper exists and returns { ok, data } style
-
+import { authFetch } from '@/lib/ClientFetch'
 export default function BoardPage() {
   // UI state
   const [openOverlay, setOpenOverlay] = useState(false)
@@ -11,20 +10,20 @@ export default function BoardPage() {
   // form
   const [taskTitle, setTaskTitle] = useState('')
   const [taskDate, setTaskDate] = useState('')
-  const [taskColumn, setTaskColumn] = useState('backlog') // backlog | inprogress | done
+  const [taskColumn, setTaskColumn] = useState('backlog')
 
   // data
   const [boardTasks, setBoardTasks] = useState([])
 
   // routing / who we view
-  const [viewedMemberId, setViewedMemberId] = useState(null)    // from ?member=
-  const [loggedInMemberId, setLoggedInMemberId] = useState(null) // detected locally
-  const [role, setRole] = useState('member') // localStorage userRole
+  const [viewedMemberId, setViewedMemberId] = useState(null)
+  const [loggedInMemberId, setLoggedInMemberId] = useState(null)
+  const [role, setRole] = useState('member')
 
   // helpers
   const uid = (p = '') => p + Date.now().toString(36).slice(-6)
 
-  // column color helpers (fixed)
+  // column color helpers
   const borderForColumn = (col) => {
     if (col === 'backlog') return 'border-red-500'
     if (col === 'inprogress') return 'border-blue-500'
@@ -38,52 +37,39 @@ export default function BoardPage() {
     return 'bg-gray-900/20'
   }
 
-  // read query param and logged-in user id on mount
   useEffect(() => {
     if (typeof window === 'undefined') return
-
-    // read role and logged in member id from localStorage (or other keys)
     const r = localStorage.getItem('userRole') || 'member'
     setRole(r)
-
-    // try several keys to detect currently signed user id
     const tryKeys = ['currentMemberId', 'memberId', 'userId', 'username', 'currentUserId']
     let foundId = null
     for (const k of tryKeys) {
       const v = localStorage.getItem(k)
       if (!v) continue
-      // prefer ID-like values; assume if it contains whitespace it's a name, not id
       if (v && typeof v === 'string') {
         foundId = v
         break
       }
     }
     if (foundId) setLoggedInMemberId(foundId)
-
-    // read member param from URL
     const params = new URLSearchParams(window.location.search)
     const memberFromQuery = params.get('member')
     if (memberFromQuery) {
-      // if non-lead is trying to view someone else, fallback to own board
       if (foundId && memberFromQuery !== foundId && r !== 'lead') {
-        // not allowed — show own board
         setViewedMemberId(foundId)
       } else {
         setViewedMemberId(memberFromQuery)
       }
     } else {
-      // no member param -> view own board if exists
       if (foundId) setViewedMemberId(foundId)
       else setViewedMemberId(null)
     }
   }, [])
 
-  // load tasks for viewedMemberId (backend -> fallback localStorage)
   useEffect(() => {
     let mounted = true
     ;(async () => {
       try {
-        // if we have a member id to view, request tasks assigned to them
         if (viewedMemberId) {
           try {
             const res = await authFetch(`/api/tasks?assignee=${encodeURIComponent(viewedMemberId)}`)
@@ -95,7 +81,6 @@ export default function BoardPage() {
             console.warn('tasks fetch by assignee failed', e)
           }
 
-          // fallback: try localStorage filtered by assignee
           try {
             const raw = localStorage.getItem('boardTasks')
             const arr = raw ? JSON.parse(raw) : []
@@ -106,8 +91,6 @@ export default function BoardPage() {
             console.warn('localStorage fallback (assignee) failed', e)
           }
         }
-
-        // else: fetch tasks for loggedInMemberId or all tasks if not available
         if (loggedInMemberId) {
           try {
             const res = await authFetch(`/api/tasks?assignee=${encodeURIComponent(loggedInMemberId)}`)
@@ -131,7 +114,6 @@ export default function BoardPage() {
           }
         }
 
-        // last fallback: load all tasks from localStorage (if any)
         try {
           const raw = localStorage.getItem('boardTasks'); const arr = raw ? JSON.parse(raw) : []
           if (mounted) setBoardTasks(arr)
@@ -152,18 +134,13 @@ export default function BoardPage() {
   const inprogress = boardTasks.filter(t => (t.columnId === 'inprogress' || t.columnId === 'RUNNING PROCESSES'))
   const done = boardTasks.filter(t => (t.columnId === 'done' || t.columnId === 'DEPLOYED'))
 
-  // persist new task (try backend, fallback localStorage)
   const persistNewTask = async (taskObj) => {
-    // try backend
     try {
       const res = await authFetch('/api/tasks', {
         method: 'POST',
         body: JSON.stringify(taskObj)
       })
       if (res && res.ok) {
-        // reload tasks
-        // if backend returned created item list or item, you can append; safer to refetch
-        // quick refetch attempt:
         const refetch = await authFetch(`/api/tasks?assignee=${encodeURIComponent(taskObj.assignee)}`)
         if (refetch && refetch.ok && Array.isArray(refetch.data)) {
           setBoardTasks(refetch.data)
@@ -174,36 +151,32 @@ export default function BoardPage() {
       console.warn('backend persist failed, using localStorage fallback', e)
     }
 
-    // fallback localStorage: add to array
     try {
       const raw = localStorage.getItem('boardTasks'); const arr = raw ? JSON.parse(raw) : []
       const toSave = { id: uid('t-'), ...taskObj }
       arr.unshift(toSave)
       localStorage.setItem('boardTasks', JSON.stringify(arr))
-      // if viewing that assignee, add to UI
+
       if (!taskObj.assignee || taskObj.assignee === viewedMemberId || (!viewedMemberId && taskObj.assignee === loggedInMemberId)) {
         setBoardTasks(prev => [toSave, ...prev])
       }
     } catch (e) { console.warn('localStorage write failed', e) }
   }
 
-  // save new task handler
   const handleSaveTask = () => {
     if (!taskTitle.trim()) return alert('Enter task title')
 
-    // decide assignee: if user is viewing a member, assign to them; else assign to loggedInMember
     const assignee = viewedMemberId || loggedInMemberId || null
 
     const newTask = {
       title: taskTitle.trim(),
       timeline: taskDate || new Date().toLocaleDateString(),
-      columnId: taskColumn, // backlog, inprogress, done
+      columnId: taskColumn,
       assignee,
       createdAt: new Date().toISOString()
     }
 
     persistNewTask(newTask)
-    // reset form + close
     setTaskTitle(''); setTaskDate(''); setTaskColumn('backlog'); setOpenOverlay(false)
   }
 

@@ -1,4 +1,3 @@
-// data/domains.js
 export const DOMAINS = [
   {
     id: 'technical',

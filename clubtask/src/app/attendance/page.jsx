@@ -3,9 +3,9 @@
 import { authFetch } from '@/lib/ClientFetch'
 import { useEffect, useMemo, useState } from 'react'
 import MainLayout from '@/components/MainLayout'
-import { DOMAINS } from '@/data/domains' // fallback only
+import { DOMAINS } from '@/data/domains'
 
-// CSV helper (unchanged)
+// CSV helper
 function downloadCSV(filename, rows) {
   const csv = rows.map(r => r.map(cell => {
     if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
@@ -22,20 +22,18 @@ function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url)
 }
 
-// normalize attendance array (Attendance docs) -> { memberId: status }
 function normalizeAttendanceFromArray(arr) {
   if (!Array.isArray(arr)) return {}
   const map = {}
   arr.forEach(item => {
     if (!item) return
-    // if populated member object
+
     if (item.member && typeof item.member === 'object') {
       const mid = String(item.member._id || item.member.id || item.member)
       const status = item.status || item.attendance || (item.present ? 'present' : undefined)
       if (mid && status) map[mid] = status
       return
     }
-    // if item has member id and status fields
     const mid = String(item.member || item.memberId || item.member_id || item._id || item.id || '')
     const status = item.status || item.attendance || (item.present ? 'present' : undefined)
     if (mid && status) map[mid] = status
@@ -45,14 +43,14 @@ function normalizeAttendanceFromArray(arr) {
 
 export default function AttendancePage() {
   const [events, setEvents] = useState([])
-  const [attendanceState, setAttendanceState] = useState({}) // { eventId: { memberId: status } }
+  const [attendanceState, setAttendanceState] = useState({})
   const [userRole, setUserRole] = useState('member')
   const [currentMemberId, setCurrentMemberId] = useState(null)
   const [currentMemberName, setCurrentMemberName] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [expandedEvent, setExpandedEvent] = useState(null)
 
-  const [membersList, setMembersList] = useState([]) // prefer DB members; fallback to DOMAINS if not available
+  const [membersList, setMembersList] = useState([])
 
   useEffect(() => {
     setUserRole(localStorage.getItem('userRole') || 'member')
@@ -69,11 +67,9 @@ export default function AttendancePage() {
           const list = mr.data.map(m => ({ id: String(m._id || m.id), name: m.name || m.email || 'Unknown', domain: m.domain || '' }))
           setMembersList(list)
         } else {
-          // fallback to static DOMAINS
           setMembersList(DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name }))))
         }
       } catch (e) {
-        // fallback
         setMembersList(DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name }))))
       }
 
@@ -105,15 +101,12 @@ export default function AttendancePage() {
           const ar = await authFetch(`/api/attendance?eventId=${qId}`)
           if (ar.ok && Array.isArray(ar.data)) {
             state[ev.id] = normalizeAttendanceFromArray(ar.data)
-            // persist fallback
             try { localStorage.setItem(`attendance-${ev.id}`, JSON.stringify(state[ev.id])) } catch {}
             continue
           }
         } catch (err) {
-          // ignore and fallback
           console.warn('attendance fetch failed for', ev.id, err)
         }
-        // fallback to localStorage if server didn't return data
         try {
           const rawA = localStorage.getItem(`attendance-${ev.id}`)
           state[ev.id] = rawA ? JSON.parse(rawA) : {}
@@ -125,7 +118,6 @@ export default function AttendancePage() {
     })()
   }, [])
 
-  // My log based on currentMemberId and events
   const myLog = useMemo(() => {
     if (!currentMemberId) return []
     return events.map(e => {
@@ -156,7 +148,6 @@ export default function AttendancePage() {
     return { totalEvents: events.length, totalRecords, totalPresent, totalAbsent: totalRecords - totalPresent, percent }
   }, [events, attendanceState])
 
-  // export builders (use membersList as source)
   const buildMyCSV = () => {
     const rows = [['eventId','eventTitle','eventDate','memberId','memberName','status']]
     myLog.forEach(r => rows.push([r.eventId, r.title||'', r.date||'', currentMemberId, currentMemberName||'', r.status]))
@@ -253,7 +244,7 @@ export default function AttendancePage() {
             <div className="space-y-4">
               {events.length === 0 ? <div className="text-gray-400">No events found.</div> : events.map(ev => {
                 const map = attendanceState[ev.id] || {}
-                // present/absent counts: if no attendance rows -> treat as not marked (counts 0)
+                // present/absent counts
                 const presentCount = Object.keys(map).length ? Object.values(map).filter(s => s === 'present').length : 0
                 const absentCount = Object.keys(map).length ? Object.values(map).filter(s => s === 'absent').length : 0
                 const attendanceMarked = Object.keys(map).length > 0
@@ -309,7 +300,7 @@ export default function AttendancePage() {
             </div>
           </div>
 
-          {/* RIGHT SIDEBAR: lead sees their personal log here; members see nothing */}
+          {/* RIGHT SIDEBAR */}
           {userRole === 'lead' && (
             <aside className="w-80 self-start">
               <div className="p-4 rounded-lg border border-green-700 bg-gray-900/40">

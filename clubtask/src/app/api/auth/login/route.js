@@ -31,7 +31,7 @@ export async function POST(req) {
       return new Response(JSON.stringify({ error: 'No such email exists.Please register below.' }), { status: 401 })
     }
 
-    // check password field name. your model uses passwordHash — handle both
+    // check password field name
     const storedPassword = user.passwordHash || user.password || ''
     const match = await bcrypt.compare(password, storedPassword)
     if (!match) {

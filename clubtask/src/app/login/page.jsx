@@ -11,10 +11,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   
 const handleLoginAs = async (role) => {
-  // if username/password provided -> real login
   if (username.trim() && password.trim()) {
     try {
-      // send email (backend expects email)
       const res = await authFetch('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email: username.trim(), password: password.trim() })
@@ -32,7 +30,6 @@ const handleLoginAs = async (role) => {
       const resolvedRole = (json.user?.position || '').toLowerCase().includes('lead') ? 'lead' : (role || 'member');
       localStorage.setItem('userRole', resolvedRole);
 
-      // mirror existing localStorage profile fields so other pages don't break
       if (json.user) {
         localStorage.setItem('profileName', json.user.name || '');
         localStorage.setItem('email', json.user.email || '');
@@ -48,8 +45,7 @@ const handleLoginAs = async (role) => {
       return alert('Network error during login');
     }
   }
-
-  // fallback quick behaviour if creds not provided
+  
   try { localStorage.setItem('userRole', role); } catch (e) { console.warn(e); }
   router.push('/board');
 }

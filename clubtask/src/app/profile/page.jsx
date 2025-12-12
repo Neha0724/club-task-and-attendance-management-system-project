@@ -1,14 +1,13 @@
 'use client'
 
 import MainLayout from '@/components/MainLayout'
-import { authFetch } from '@/lib/ClientFetch' // make sure this file exists
+import { authFetch } from '@/lib/ClientFetch'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { DOMAINS } from '@/data/domains' // adjust path if needed
+import { DOMAINS } from '@/data/domains'
 
 export default function ProfilePage() {
   const router = useRouter()
-
   const [currentMemberId, setCurrentMemberId] = useState(null)
   const [currentMemberName, setCurrentMemberName] = useState('')
   const [email, setEmail] = useState('')
@@ -16,31 +15,22 @@ export default function ProfilePage() {
   const [domainName, setDomainName] = useState('')
   const [bio, setBio] = useState('')
   const [memberSince, setMemberSince] = useState((new Date()).getFullYear().toString())
-
-  const [boardTasks, setBoardTasks] = useState([])      // in-memory, populated from API or fallback
-  const [eventsList, setEventsList] = useState([])      // in-memory
-  const [attendanceState, setAttendanceState] = useState({}) // in-memory
-
-  // bio edit UI state (in-memory only)
+  const [boardTasks, setBoardTasks] = useState([])   
+  const [eventsList, setEventsList] = useState([])  
+  const [attendanceState, setAttendanceState] = useState({}) 
   const [isEditingBio, setIsEditingBio] = useState(false)
   const [draftBio, setDraftBio] = useState('')
-
-  // flatten members for lookups (fallback)
   const ALL_MEMBERS = DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name })))
 
-  // ---------- NEW: fetch logged-in user's profile ----------
   useEffect(() => {
     let mounted = true
     ;(async () => {
       try {
-        // Try to read stored token and user id
         const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
         const savedUserId = typeof window !== 'undefined' ? (localStorage.getItem('userId') || localStorage.getItem('currentMemberId')) : null
 
-        // helper to apply profile to state
         const applyProfile = (p) => {
           if (!p || !mounted) return
-          // possible shapes: { user: {...} } or user object directly
           const user = p.user || p || {}
           const id = user._id || user.id || user._uid || savedUserId || null
           const name = user.name || user.username || user.displayName || user.email?.split?.('@')?.[0] || ''
@@ -65,19 +55,14 @@ export default function ProfilePage() {
           if (since) setMemberSince(String(since))
         }
 
-        // 1) Preferred: /api/auth/me (works if authFetch attaches token)
         try {
           const meRes = await authFetch('/api/auth/me')
           if (meRes && meRes.ok) {
-            // server may return { user: {...} } or the user object directly
             applyProfile(meRes.data || meRes)
             return
           }
         } catch (e) {
-          // ignore and fallback
         }
-
-        // 2) Fallback: if we have a saved userId, try /api/users/:id
         if (savedUserId) {
           const byIdPaths = [
             `/api/users/${encodeURIComponent(savedUserId)}`,
@@ -92,24 +77,21 @@ export default function ProfilePage() {
                 applyProfile(r.data || r.user || r)
                 return
               }
-            } catch (_) { /* try next */ }
+            } catch (_) { }
           }
         }
 
-        // 3) Final fallback: try /api/members (list) and pick first / match savedUserId
         try {
           const listRes = await authFetch('/api/members')
           if (listRes && listRes.ok && Array.isArray(listRes.data) && listRes.data.length) {
-            // prefer savedUserId if present, else pick first user
             const match = savedUserId ? listRes.data.find(u => String(u._id || u.id) === String(savedUserId)) : listRes.data[0]
             if (match) {
               applyProfile(match)
               return
             }
           }
-        } catch (_) { /* ignore */ }
+        } catch (_) {}
 
-        // 4) If nothing found, try localStorage fallbacks (old app behavior)
         const nameLS = localStorage.getItem('profileName') || localStorage.getItem('currentMemberName')
         const idLS = localStorage.getItem('currentMemberId') || localStorage.getItem('userId')
         const posLS = localStorage.getItem('position') || position
@@ -148,7 +130,6 @@ export default function ProfilePage() {
             if (mounted) setBoardTasks(rawTasks ? JSON.parse(rawTasks) : [])
           }
         } else {
-          // no member: try fetch all tasks
           try {
             const allRes = await authFetch('/api/tasks')
             if (mounted && allRes.ok && Array.isArray(allRes.data)) setBoardTasks(allRes.data)
@@ -177,15 +158,13 @@ export default function ProfilePage() {
           if (mounted) setEventsList(ev)
         }
 
-        // 3) for each event, load attendance map (backend or fallback)
+        // 3) for each event, load attendance map
         const state = {}
         for (const e of ev) {
           try {
-            // prefer _id when present
             const qId = e._id || e.id
             const aRes = await authFetch(`/api/attendance?eventId=${encodeURIComponent(qId)}`)
             if (aRes && aRes.ok) {
-              // server likely returns array of docs; convert to map
               const raw = aRes.data
               if (Array.isArray(raw)) {
                 const map = {}
@@ -196,7 +175,6 @@ export default function ProfilePage() {
                 })
                 state[e.id] = map
               } else if (raw && typeof raw === 'object') {
-                // if API returned map already
                 state[e.id] = raw
               } else {
                 state[e.id] = {}
@@ -219,15 +197,12 @@ export default function ProfilePage() {
     return () => { mounted = false }
   }, [currentMemberId])
 
-  // completed tasks (in-memory)
   const completedTasks = useMemo(() => {
     if (!currentMemberId) return []
     return boardTasks.filter(t => String(t.assignee) === String(currentMemberId) && (t.columnId === 'done' || t.columnId === 'DEPLOYED'))
   }, [boardTasks, currentMemberId])
 
   const tasksCompletedCount = completedTasks.length
-
-  // events attended count (in-memory)
   const eventsAttended = useMemo(() => {
     if (!currentMemberId) return 0
     let count = 0
@@ -239,7 +214,6 @@ export default function ProfilePage() {
     return count
   }, [eventsList, attendanceState, currentMemberId])
 
-  // ensure fallback names/domains if id matched later
   useEffect(() => {
     if (!currentMemberName && currentMemberId) {
       const mm = ALL_MEMBERS.find(m => m.id === currentMemberId)
@@ -248,7 +222,6 @@ export default function ProfilePage() {
         setDomainName(mm.domain)
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMemberId, currentMemberName])
 
   const handleLogout = () => {
@@ -265,8 +238,6 @@ export default function ProfilePage() {
     if (!name) return 'US'
     return name.split(' ').map(s => s[0]).slice(0,2).join('').toUpperCase()
   }
-
-  // Bio editing handlers (memory only)
   const startEditBio = () => {
     setDraftBio(bio || '')
     setIsEditingBio(true)
@@ -279,7 +250,6 @@ export default function ProfilePage() {
     const trimmed = (draftBio || '').trim()
     setBio(trimmed)
     setIsEditingBio(false)
-    // NOTE: no persistence here (you asked to remove localStorage).
   }
 
   return (
@@ -292,7 +262,6 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Upper: expanded profile card with completed tasks replacing the three boxes */}
         <div className="bg-gray-900/30 border border-green-900/50 rounded-lg p-6 mb-6">
           <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
             <div className="w-24 h-24 rounded-full bg-green-800 flex items-center justify-center text-white text-3xl font-bold">
@@ -308,7 +277,7 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* bio (editable) */}
+          {/* bio */}
           <div className="mt-6 text-sm text-gray-300">
             <div className="flex items-center justify-between mb-2">
               <div className="text-gray-400">Bio:</div>
@@ -337,7 +306,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Bottom: Activity Summary (kept as it was) */}
+        {/* Bottom: Activity Summary */}
         <div className="bg-gray-900/30 border border-green-900/50 rounded-lg p-6">
           <h3 className="text-white font-semibold mb-3">Activity Summary</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

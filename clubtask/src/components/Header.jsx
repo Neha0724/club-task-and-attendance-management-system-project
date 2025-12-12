@@ -9,7 +9,7 @@ export default function Header() {
             <span className="text-green-400 font-bold text-xs">GFG</span>
           </div>
           <h1 className="text-2xl font-bold text-white">
-            <span className="text-green-400">GFG</span> CLUB MANAGEMENT SYSTEM
+            <span className="text-green-400">GFG</span> MEMBER NEXUS
           </h1>
         </div>
       </div>

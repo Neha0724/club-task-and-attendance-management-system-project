@@ -20,7 +20,6 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     await dbConnect()
-    // protect endpoint: check Authorization header
     const bearer = req.headers.get('authorization') || ''
     const token = bearer.split(' ')[1]
     const user = verifyToken(token)

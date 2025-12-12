@@ -13,5 +13,5 @@ export function getUserFromReq(req) {
   const payload = verifyToken(token)
   if (!payload) return { error: 'Invalid or expired token' }
 
-  return { payload } // payload has whatever was signed (id, email, role)
+  return { payload }
 }

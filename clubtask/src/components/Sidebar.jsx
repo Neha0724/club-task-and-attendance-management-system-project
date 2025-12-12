@@ -18,7 +18,6 @@ export default function Sidebar() {
     }
   }, [])
 
-  // base nav
   const navItems = [
     { href: '/board', icon: Layout, label: 'PROJECT_BOARD' },
     { href: '/events', icon: Calendar, label: 'EVENTS' },
@@ -26,7 +25,6 @@ export default function Sidebar() {
     { href: '/profile', icon: User, label: 'PROFILE' },
   ]
 
-  // if lead, insert domains (you can change splice index to adjust position)
   const finalNav = [...navItems]
   if (role === 'lead') {
     finalNav.splice(1, 0, { href: '/domains', icon: Folder, label: 'DOMAINS' })

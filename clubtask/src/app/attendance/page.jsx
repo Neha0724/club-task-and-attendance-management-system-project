@@ -3,9 +3,9 @@
 import { authFetch } from '@/lib/ClientFetch'
 import { useEffect, useMemo, useState } from 'react'
 import MainLayout from '@/components/MainLayout'
-import { DOMAINS } from '@/data/domains' // adjust path if needed
+import { DOMAINS } from '@/data/domains' // fallback only
 
-// CSV helper
+// CSV helper (unchanged)
 function downloadCSV(filename, rows) {
   const csv = rows.map(r => r.map(cell => {
     if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
@@ -22,7 +22,26 @@ function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url)
 }
 
-const ALL_MEMBERS = DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name })))
+// normalize attendance array (Attendance docs) -> { memberId: status }
+function normalizeAttendanceFromArray(arr) {
+  if (!Array.isArray(arr)) return {}
+  const map = {}
+  arr.forEach(item => {
+    if (!item) return
+    // if populated member object
+    if (item.member && typeof item.member === 'object') {
+      const mid = String(item.member._id || item.member.id || item.member)
+      const status = item.status || item.attendance || (item.present ? 'present' : undefined)
+      if (mid && status) map[mid] = status
+      return
+    }
+    // if item has member id and status fields
+    const mid = String(item.member || item.memberId || item.member_id || item._id || item.id || '')
+    const status = item.status || item.attendance || (item.present ? 'present' : undefined)
+    if (mid && status) map[mid] = status
+  })
+  return map
+}
 
 export default function AttendancePage() {
   const [events, setEvents] = useState([])
@@ -33,81 +52,111 @@ export default function AttendancePage() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [expandedEvent, setExpandedEvent] = useState(null)
 
-  // load role, events, attendance, and current member
-  useEffect(() => {
-  setUserRole(localStorage.getItem('userRole') || 'member')
+  const [membersList, setMembersList] = useState([]) // prefer DB members; fallback to DOMAINS if not available
 
-  ;(async () => {
-    try {
-      const res = await authFetch('/api/events')
-      let ev = []
-      if (res.ok && Array.isArray(res.data)) {
-        ev = res.data
-        setEvents(ev)
-      } else {
-        const rawE = localStorage.getItem('events'); ev = rawE ? JSON.parse(rawE) : []
-        setEvents(ev)
+  useEffect(() => {
+    setUserRole(localStorage.getItem('userRole') || 'member')
+    const savedId = localStorage.getItem('currentMemberId') || localStorage.getItem('userId') || null
+    const savedName = localStorage.getItem('currentMemberName') || localStorage.getItem('profileName') || null
+    if (savedId) setCurrentMemberId(savedId)
+    if (savedName) setCurrentMemberName(savedName)
+
+    ;(async () => {
+      // 1) Try to fetch members from server (DB members)
+      try {
+        const mr = await authFetch('/api/members')
+        if (mr.ok && Array.isArray(mr.data)) {
+          const list = mr.data.map(m => ({ id: String(m._id || m.id), name: m.name || m.email || 'Unknown', domain: m.domain || '' }))
+          setMembersList(list)
+        } else {
+          // fallback to static DOMAINS
+          setMembersList(DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name }))))
+        }
+      } catch (e) {
+        // fallback
+        setMembersList(DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name }))))
       }
 
+      // 2) Fetch events
+      let rawEvents = []
+      try {
+        const er = await authFetch('/api/events')
+        if (er.ok && Array.isArray(er.data)) rawEvents = er.data
+        else {
+          const stored = localStorage.getItem('events'); rawEvents = stored ? JSON.parse(stored) : []
+        }
+      } catch (e) {
+        const stored = localStorage.getItem('events'); rawEvents = stored ? JSON.parse(stored) : []
+      }
+
+      const normalizedEvents = rawEvents.map(ev => ({
+        id: String(ev._id || ev.id || Math.random()),
+        title: ev.title || ev.name || '',
+        date: ev.date || ev.rawDate || '',
+        raw: ev
+      }))
+      setEvents(normalizedEvents)
+
+      // 3) For each event, fetch attendance and normalize
       const state = {}
-      for (const e of ev) {
+      for (const ev of normalizedEvents) {
         try {
-          const ares = await authFetch(`/api/attendance?eventId=${encodeURIComponent(e.id)}`)
-          if (ares.ok) state[e.id] = ares.data || null
-          else {
-            const rawA = localStorage.getItem(`attendance-${e.id}`)
-            state[e.id] = rawA ? JSON.parse(rawA) : null
+          const qId = ev.raw && (ev.raw._id || ev.raw.id) ? (ev.raw._id || ev.raw.id) : ev.id
+          const ar = await authFetch(`/api/attendance?eventId=${qId}`)
+          if (ar.ok && Array.isArray(ar.data)) {
+            state[ev.id] = normalizeAttendanceFromArray(ar.data)
+            // persist fallback
+            try { localStorage.setItem(`attendance-${ev.id}`, JSON.stringify(state[ev.id])) } catch {}
+            continue
           }
+        } catch (err) {
+          // ignore and fallback
+          console.warn('attendance fetch failed for', ev.id, err)
+        }
+        // fallback to localStorage if server didn't return data
+        try {
+          const rawA = localStorage.getItem(`attendance-${ev.id}`)
+          state[ev.id] = rawA ? JSON.parse(rawA) : {}
         } catch {
-          const rawA = localStorage.getItem(`attendance-${e.id}`)
-          state[e.id] = rawA ? JSON.parse(rawA) : null
+          state[ev.id] = {}
         }
       }
       setAttendanceState(state)
-    } catch (e) {
-      console.warn('attendance load failed', e)
-      // fallback existing logic
-      try {
-        const rawE = localStorage.getItem('events'); const ev = rawE ? JSON.parse(rawE) : []
-        setEvents(ev)
-        const state = {}
-        ev.forEach(e => {
-          try { const rawA = localStorage.getItem(`attendance-${e.id}`); state[e.id] = rawA ? JSON.parse(rawA) : null } catch { state[e.id] = null }
-        })
-        setAttendanceState(state)
-      } catch (e2) { console.warn(e2); setEvents([]); setAttendanceState({}) }
-    }
-  })()
-}, [])
+    })()
+  }, [])
 
-
-  // member-specific log
+  // My log based on currentMemberId and events
   const myLog = useMemo(() => {
     if (!currentMemberId) return []
     return events.map(e => {
       const map = attendanceState[e.id] || {}
-      const status = map && map[currentMemberId] ? map[currentMemberId] : 'present'
+      const status = map[currentMemberId] || map[String(currentMemberId)] || 'not marked'
       return { eventId: e.id, title: e.title, date: e.date, status }
     })
   }, [events, attendanceState, currentMemberId])
 
+  // myOverall
   const myOverall = useMemo(() => {
     if (!currentMemberId) return { total:0, present:0, absent:0, percent:0 }
-    const total = myLog.length, present = myLog.filter(r=>r.status==='present').length, absent = total - present
-    return { total, present, absent, percent: total ? Math.round((present/total)*100) : 0 }
-  }, [myLog, currentMemberId])
+    const total = myLog.length
+    const present = myLog.filter(r => r.status === 'present').length
+    const absent = myLog.filter(r => r.status === 'absent').length
+    const percent = total ? Math.round((present/total)*100) : 0
+    return { total, present, absent, percent }
+  }, [myLog])
 
-  // overall club stats for leads
+  // overallAll for lead
   const overallAll = useMemo(() => {
-    let totalRecords=0, totalPresent=0
-    events.forEach(e => {
-      const map = attendanceState[e.id] || {}
-      Object.values(map || {}).forEach(s => { totalRecords++; if (s==='present') totalPresent++ })
+    let totalRecords = 0, totalPresent = 0
+    events.forEach(ev => {
+      const map = attendanceState[ev.id] || {}
+      Object.values(map || {}).forEach(s => { totalRecords++; if (s === 'present') totalPresent++ })
     })
-    return { totalEvents: events.length, totalRecords, totalPresent, totalAbsent: totalRecords - totalPresent, percent: totalRecords ? Math.round((totalPresent/totalRecords)*100) : 0 }
+    const percent = totalRecords ? Math.round((totalPresent/totalRecords)*100) : 0
+    return { totalEvents: events.length, totalRecords, totalPresent, totalAbsent: totalRecords - totalPresent, percent }
   }, [events, attendanceState])
 
-  // CSV builders
+  // export builders (use membersList as source)
   const buildMyCSV = () => {
     const rows = [['eventId','eventTitle','eventDate','memberId','memberName','status']]
     myLog.forEach(r => rows.push([r.eventId, r.title||'', r.date||'', currentMemberId, currentMemberName||'', r.status]))
@@ -115,39 +164,38 @@ export default function AttendancePage() {
   }
   const buildAllCSV = () => {
     const rows = [['eventId','eventTitle','eventDate','memberId','memberName','status']]
-    events.forEach(e => {
-      const map = attendanceState[e.id] || {}
-      ALL_MEMBERS.forEach(m => {
-        const status = (map && map[m.id]) ? map[m.id] : 'present'
-        rows.push([e.id, e.title||'', e.date||'', m.id, m.name, status])
+    events.forEach(ev => {
+      const map = attendanceState[ev.id] || {}
+      membersList.forEach(m => {
+        const status = map[m.id] || map[String(m.id)] || 'not marked'
+        rows.push([ev.id, ev.title||'', ev.date||'', m.id, m.name, status])
       })
     })
     return rows
   }
   const buildEventCSV = (eventId) => {
-    const e = events.find(x=>x.id===eventId)
+    const e = events.find(x => x.id === eventId)
     const rows = [['eventId','eventTitle','eventDate','memberId','memberName','status']]
-    ALL_MEMBERS.forEach(m => {
+    membersList.forEach(m => {
       const map = attendanceState[eventId] || {}
-      const status = (map && map[m.id]) ? map[m.id] : 'present'
+      const status = map[m.id] || map[String(m.id)] || 'not marked'
       rows.push([eventId, e?.title||'', e?.date||'', m.id, m.name, status])
     })
     return rows
   }
 
-  // exports
   const exportMyCSV = () => { if (!currentMemberId) return alert('Select yourself first'); downloadCSV(`${(currentMemberName||currentMemberId)}_attendance.csv`, buildMyCSV()) }
   const exportAllCSV = () => { downloadCSV('attendance_all_members.csv', buildAllCSV()) }
-  const exportEventCSV = (id) => { const e = events.find(x=>x.id===id); downloadCSV(`${(e?.title||id).replace(/\s+/g,'_')}_attendance.csv`, buildEventCSV(id)) }
+  const exportEventCSV = (id) => { const e = events.find(x => x.id === id); downloadCSV(`${(e?.title||id).replace(/\s+/g,'_')}_attendance.csv`, buildEventCSV(id)) }
 
-  // picker
   const chooseMember = (id) => {
-    const m = ALL_MEMBERS.find(x=>x.id===id); if (!m) return
+    const m = membersList.find(x => x.id === id)
+    if (!m) return
     localStorage.setItem('currentMemberId', m.id); localStorage.setItem('currentMemberName', m.name)
     setCurrentMemberId(m.id); setCurrentMemberName(m.name); setPickerOpen(false)
   }
 
-  const badgeClass = (status) => status === 'absent' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
+  const badgeClass = (status) => status === 'absent' ? 'bg-red-600 text-white' : (status === 'present' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white')
   const eventBadge = () => 'bg-green-600 text-black font-bold px-3 py-1 rounded'
 
   return (
@@ -162,11 +210,11 @@ export default function AttendancePage() {
                 {userRole === 'lead' ? (
                   <>
                     <button onClick={exportAllCSV} className="px-3 py-2 bg-green-600 text-black rounded">Generate CSV (All)</button>
-                    <button onClick={()=>setPickerOpen(prev=>!prev)} className="px-3 py-2 bg-gray-800 border border-green-700 text-green-300 rounded">View Member</button>
+                    <button onClick={() => setPickerOpen(prev => !prev)} className="px-3 py-2 bg-gray-800 border border-green-700 text-green-300 rounded">View Member</button>
                   </>
                 ) : (
                   <>
-                    {!currentMemberId ? <button onClick={()=>setPickerOpen(true)} className="px-3 py-2 bg-green-600 text-black rounded">Select Me</button> : <button onClick={exportMyCSV} className="px-3 py-2 bg-green-600 text-black rounded">Export CSV (My Log)</button>}
+                    {!currentMemberId ? <button onClick={() => setPickerOpen(true)} className="px-3 py-2 bg-green-600 text-black rounded">Select Me</button> : <button onClick={exportMyCSV} className="px-3 py-2 bg-green-600 text-black rounded">Export CSV (My Log)</button>}
                   </>
                 )}
               </div>
@@ -175,9 +223,9 @@ export default function AttendancePage() {
             {pickerOpen && (
               <div className="mb-6 p-3 rounded-lg border border-green-700/30 bg-gray-900/30">
                 <div className="text-sm text-gray-300 mb-2">Choose a member to view:</div>
-                <select className="w-full px-3 py-2 bg-gray-800 border border-green-700 text-white rounded" onChange={e=>chooseMember(e.target.value)} defaultValue="">
+                <select className="w-full px-3 py-2 bg-gray-800 border border-green-700 text-white rounded" onChange={e => chooseMember(e.target.value)} defaultValue="">
                   <option value="">— select —</option>
-                  {ALL_MEMBERS.map(m=> <option key={m.id} value={m.id}>{m.name} ({m.domain})</option>)}
+                  {membersList.map(m => <option key={m.id} value={m.id}>{m.name} ({m.domain})</option>)}
                 </select>
               </div>
             )}
@@ -185,10 +233,10 @@ export default function AttendancePage() {
             {/* top summary */}
             <div className="mb-6 p-4 rounded-lg border border-green-700 bg-gray-900/40 flex items-center justify-between">
               <div>
-                <div className="text-sm text-green-300">{userRole==='lead' ? 'Overall Club Attendance' : 'Your Attendance'}</div>
-                <div className="text-2xl font-bold text-white">{userRole==='lead' ? overallAll.percent + '%' : myOverall.percent + '%'}</div>
+                <div className="text-sm text-green-300">{userRole === 'lead' ? 'Overall Club Attendance' : 'Your Attendance'}</div>
+                <div className="text-2xl font-bold text-white">{userRole === 'lead' ? overallAll.percent + '%' : myOverall.percent + '%'}</div>
                 <div className="text-sm text-gray-400 mt-1">
-                  {userRole==='lead' ? (
+                  {userRole === 'lead' ? (
                     <>Events: <span className="font-medium text-white">{overallAll.totalEvents}</span> • Records: <span className="font-medium text-white ml-1">{overallAll.totalRecords}</span></>
                   ) : (
                     <>Events: <span className="font-medium text-white">{myOverall.total}</span> • Present: <span className="font-medium text-white ml-1">{myOverall.present}</span> • Absent: <span className="font-medium text-white ml-1">{myOverall.absent}</span></>
@@ -204,10 +252,12 @@ export default function AttendancePage() {
             {/* attendance logs */}
             <div className="space-y-4">
               {events.length === 0 ? <div className="text-gray-400">No events found.</div> : events.map(ev => {
-                const map = attendanceState[ev.id] || null
-                const presentCount = map ? Object.values(map).filter(s=>s==='present').length : ALL_MEMBERS.length
-                const absentCount = map ? Object.values(map).filter(s=>s==='absent').length : 0
-                // if userRole is member and currentMemberId exists show only that member line, else show counts and view options
+                const map = attendanceState[ev.id] || {}
+                // present/absent counts: if no attendance rows -> treat as not marked (counts 0)
+                const presentCount = Object.keys(map).length ? Object.values(map).filter(s => s === 'present').length : 0
+                const absentCount = Object.keys(map).length ? Object.values(map).filter(s => s === 'absent').length : 0
+                const attendanceMarked = Object.keys(map).length > 0
+
                 return (
                   <div key={ev.id} className="rounded-lg border border-green-700/20 bg-gray-900/30 p-4">
                     <div className="flex items-center justify-between">
@@ -220,34 +270,37 @@ export default function AttendancePage() {
                           <>
                             <div className="text-sm text-gray-300">Present: <span className="font-medium text-white ml-1">{presentCount}</span></div>
                             <div className="text-sm text-gray-300">Absent: <span className="font-medium text-white ml-1">{absentCount}</span></div>
-                            <button onClick={()=>setExpandedEvent(prev=>prev===ev.id?null:ev.id)} className="px-3 py-1 rounded bg-blue-600 text-white text-sm">{expandedEvent===ev.id ? 'Hide' : 'View'}</button>
-                            <button onClick={()=>exportEventCSV(ev.id)} className="px-3 py-1 rounded bg-green-600 text-black text-sm">Export CSV</button>
+                            <button onClick={() => { setExpandedEvent(prev => prev === ev.id ? null : ev.id) }} className="px-3 py-1 rounded bg-blue-600 text-white text-sm">{expandedEvent === ev.id ? 'Hide' : 'View'}</button>
+                            <button onClick={() => exportEventCSV(ev.id)} className="px-3 py-1 rounded bg-green-600 text-black text-sm">Export CSV</button>
                           </>
                         ) : (
-                          // member view: show this member's status for that event
                           <>
-                            <div className={`px-3 py-1 rounded ${badgeClass((map && map[currentMemberId]) ? map[currentMemberId] : 'present')}`}>{(map && map[currentMemberId]) ? map[currentMemberId] : 'present'}</div>
+                            <div className={`px-3 py-1 rounded ${badgeClass((map && (map[currentMemberId] || map[String(currentMemberId)])) ? (map[currentMemberId] || map[String(currentMemberId)]) : 'not marked')}`}>{(map && (map[currentMemberId] || map[String(currentMemberId)])) ? (map[currentMemberId] || map[String(currentMemberId)]) : 'not marked'}</div>
                           </>
                         )}
                       </div>
                     </div>
 
-                    {expandedEvent===ev.id && (
+                    {expandedEvent === ev.id && (
                       <div className="mt-3 border-t border-green-700/10 pt-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {ALL_MEMBERS.map(m => {
-                            const status = (attendanceState[ev.id] && attendanceState[ev.id][m.id]) ? attendanceState[ev.id][m.id] : 'present'
-                            return (
-                              <div key={m.id} className="flex items-center justify-between p-3 rounded bg-gray-800/40">
-                                <div>
-                                  <div className="text-white font-medium">{m.name}</div>
-                                  <div className="text-xs text-gray-400">{m.id} • {m.domain}</div>
+                        { !attendanceMarked ? (
+                          <div className="text-sm text-gray-400">Attendance not marked yet for this event.</div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {membersList.map(m => {
+                              const status = (attendanceState[ev.id] && (attendanceState[ev.id][m.id] || attendanceState[ev.id][String(m.id)])) ? (attendanceState[ev.id][m.id] || attendanceState[ev.id][String(m.id)]) : 'not marked'
+                              return (
+                                <div key={m.id} className="flex items-center justify-between p-3 rounded bg-gray-800/40">
+                                  <div>
+                                    <div className="text-white font-medium">{m.name}</div>
+                                    <div className="text-xs text-gray-400">{m.domain}</div>
+                                  </div>
+                                  <div className={`px-3 py-1 rounded ${badgeClass(status)}`}>{status}</div>
                                 </div>
-                                <div className={`px-3 py-1 rounded ${badgeClass(status)}`}>{status}</div>
-                              </div>
-                            )
-                          })}
-                        </div>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -265,9 +318,9 @@ export default function AttendancePage() {
                 {!currentMemberId ? (
                   <div className="mb-3">
                     <div className="text-xs text-gray-300 mb-2">Select yourself (saved locally):</div>
-                    <select onChange={e=>{ const v=e.target.value; const m=ALL_MEMBERS.find(x=>x.id===v); if (m){ localStorage.setItem('currentMemberId',m.id); localStorage.setItem('currentMemberName',m.name); setCurrentMemberId(m.id); setCurrentMemberName(m.name)}}} className="w-full px-2 py-2 bg-gray-800 border border-green-700 text-white rounded">
+                    <select onChange={e => { const v = e.target.value; const m = membersList.find(x => x.id === v); if (m) { localStorage.setItem('currentMemberId', m.id); localStorage.setItem('currentMemberName', m.name); setCurrentMemberId(m.id); setCurrentMemberName(m.name) } }} className="w-full px-2 py-2 bg-gray-800 border border-green-700 text-white rounded">
                       <option value="">— select —</option>
-                      {ALL_MEMBERS.map(m=> <option key={m.id} value={m.id}>{m.name} ({m.domain})</option>)}
+                      {membersList.map(m => <option key={m.id} value={m.id}>{m.name} ({m.domain})</option>)}
                     </select>
                   </div>
                 ) : (
@@ -289,8 +342,8 @@ export default function AttendancePage() {
                 </div>
 
                 <div className="mt-3 flex gap-2">
-                  <button onClick={()=>exportMyCSV()} className="px-3 py-2 bg-green-600 text-black rounded">Export My CSV</button>
-                  <button onClick={()=>exportAllCSV()} className="px-3 py-2 bg-gray-800 border border-green-700 text-green-300 rounded">Export All</button>
+                  <button onClick={() => downloadCSV(`${(currentMemberName || currentMemberId)}_attendance.csv`, buildMyCSV())} className="px-3 py-2 bg-green-600 text-black rounded">Export My CSV</button>
+                  <button onClick={() => downloadCSV('attendance_all_members.csv', buildAllCSV())} className="px-3 py-2 bg-gray-800 border border-green-700 text-green-300 rounded">Export All</button>
                 </div>
               </div>
             </aside>

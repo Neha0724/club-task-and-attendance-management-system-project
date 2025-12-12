@@ -2,10 +2,15 @@
 
 import MainLayout from '@/components/MainLayout'
 import { useEffect, useState } from 'react'
-import { DOMAINS } from '@/data/domains' // adjust if needed
-import { authFetch } from '@/lib/ClientFetch' // <- new helper
+import { authFetch } from '@/lib/ClientFetch'
+import { DOMAINS } from '@/data/domains' // fallback if /api/members not present
 
-const uid = (p = '') => p + Date.now().toString(36).slice(-6)
+// Format server ISO dates into "MMM DD"
+function fmtDate(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()
+}
 
 function Overlay({ open, onClose, title, width = 'w-full sm:max-w-lg', children }) {
   if (!open) return null
@@ -24,237 +29,370 @@ function Overlay({ open, onClose, title, width = 'w-full sm:max-w-lg', children 
 export default function EventsPage() {
   const [role, setRole] = useState('member')
   const [events, setEvents] = useState([])
-  const [attendanceState, setAttendanceState] = useState({})
+  const [attendanceState, setAttendanceState] = useState({}) // { eventId(normalized): { memberId: status } }
 
-  // UI
+  const [membersList, setMembersList] = useState([]) // DB members preferred; fallback to DOMAINS
+
   const [openCreate, setOpenCreate] = useState(false)
-  const [openAttendFor, setOpenAttendFor] = useState(null)
+  const [openAttendFor, setOpenAttendFor] = useState(null) // normalized event id
   const [openDescFor, setOpenDescFor] = useState(null)
+
   const [editingAttendance, setEditingAttendance] = useState({})
 
-  // create form
   const [name, setName] = useState('')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
   const [venue, setVenue] = useState('')
   const [desc, setDesc] = useState('')
 
-  // members list
-  const ALL_MEMBERS = DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name })))
-
+  // Load members, role, events & attendance on mount
   useEffect(() => {
-    const r = localStorage.getItem('userRole') || 'member'
-    setRole(r)
+    setRole(localStorage.getItem('userRole') || 'member')
 
-    // Try fetch events from backend; if fails, fallback to localStorage defaults.
     ;(async () => {
+      // 1) Members list (try DB first)
+      try {
+        const mr = await authFetch('/api/members')
+        if (mr && mr.ok && Array.isArray(mr.data) && mr.data.length) {
+          setMembersList(mr.data.map(m => ({ id: String(m._id || m.id), name: m.name || m.email || 'Unknown', domain: m.domain || '' })))
+        } else {
+          // fallback to DOMAINS static list
+          setMembersList(DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name }))))
+        }
+      } catch (err) {
+        console.warn('members fetch failed; using fallback DOMAINS', err)
+        setMembersList(DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name }))))
+      }
+
+      // 2) Events + attendance
       try {
         const res = await authFetch('/api/events')
-        if (res.ok && Array.isArray(res.data)) {
-          setEvents(res.data)
-        } else {
-          // fallback to localStorage/defaults
-          const raw = localStorage.getItem('events')
-          if (raw) setEvents(JSON.parse(raw))
-          else {
-            const defaults = [
-              { id: 'e1', date: 'SEP 15', title: 'Workshop', time: '15:00', location: 'DT 902', description: 'Hands-on design workshop.' },
-              { id: 'e2', date: 'SEP 23', title: 'Git for Geeks', time: '15:00', location: 'DT 112', description: 'Intro to Git and GitHub.' }
-            ]
-            setEvents(defaults); localStorage.setItem('events', JSON.stringify(defaults))
-          }
+
+        let rawEvents = []
+        if (res && res.ok && Array.isArray(res.data)) rawEvents = res.data
+        else {
+          // fallback to localStorage events
+          const stored = localStorage.getItem('events')
+          rawEvents = stored ? JSON.parse(stored) : []
         }
 
-        // load attendance per event from backend if available
+        // normalize events so each has id (prefer _id)
+        const normalized = rawEvents.map(e => ({
+          id: String(e._id || e.id || Math.random()),
+          title: e.title || e.name || '',
+          date: fmtDate(e.date),
+          time: e.time || '',
+          location: e.location || '',
+          description: e.description || '',
+          color: e.color || '',
+          raw: e
+        }))
+        setEvents(normalized)
+
+        // fetch attendance for each event and normalize into map keyed by normalized event id
         const state = {}
-        // If backend provided events we loaded them; attempt to fetch attendance per event
-        const evs = res?.data || JSON.parse(localStorage.getItem('events') || '[]')
-        for (const e of evs) {
+        for (const ev of normalized) {
           try {
-            const attRes = await authFetch(`/api/attendance?eventId=${encodeURIComponent(e.id)}`)
-            if (attRes.ok) state[e.id] = attRes.data || null
-            else {
-              const rawA = localStorage.getItem(`attendance-${e.id}`)
-              state[e.id] = rawA ? JSON.parse(rawA) : null
+            // prefer raw._id when querying server
+            const queryId = ev.raw && (ev.raw._id || ev.raw.id) ? (ev.raw._id || ev.raw.id) : ev.id
+            const ares = await authFetch(`/api/attendance?eventId=${queryId}`)
+            if (ares && ares.ok && Array.isArray(ares.data)) {
+              // convert array of attendance docs -> { memberId: status }
+              const map = {}
+              ares.data.forEach(a => {
+                const memberId = a.member && typeof a.member === 'object' ? String(a.member._id || a.member.id) : String(a.member || a.memberId || a.member_id || '')
+                if (!memberId) return
+                map[memberId] = a.status || a.attendance || (a.present ? 'present' : 'absent')
+              })
+              state[ev.id] = map
+              try { localStorage.setItem(`attendance-${ev.id}`, JSON.stringify(map)) } catch {}
+              continue
             }
-          } catch { state[e.id] = null }
+          } catch (err) {
+            console.warn('attendance fetch failed for', ev.id, err)
+          }
+          // fallback localStorage
+          try {
+            const rawA = localStorage.getItem(`attendance-${ev.id}`)
+            state[ev.id] = rawA ? JSON.parse(rawA) : {}
+          } catch {
+            state[ev.id] = {}
+          }
         }
         setAttendanceState(state)
       } catch (err) {
-        console.warn('events load failed', err)
-        // fallback
-        const raw = localStorage.getItem('events')
-        if (raw) setEvents(JSON.parse(raw))
-        else {
-          const defaults = [
-            { id: 'e1', date: 'SEP 15', title: 'Workshop', time: '15:00', location: 'DT 902', description: 'Hands-on design workshop.' },
-            { id: 'e2', date: 'SEP 23', title: 'Git for Geeks', time: '15:00', location: 'DT 112', description: 'Intro to Git and GitHub.' }
-          ]
-          setEvents(defaults); localStorage.setItem('events', JSON.stringify(defaults))
-        }
+        console.warn('Event load failed', err)
+        setEvents([])
       }
     })()
   }, [])
 
-  const persistEvents = (arr) => { localStorage.setItem('events', JSON.stringify(arr)); setEvents(arr) }
-
-  // append board task helper (try backend then fallback)
   const appendBoardTask = async (evt) => {
     try {
       const payload = {
         title: evt.title,
         timeline: evt.date || evt.time || '—',
-        color: 'green',
+        color: evt.color || 'green',
         columnId: 'backlog',
         meta: { type: 'event', venue: evt.location, description: evt.description || '' }
       }
       const res = await authFetch('/api/tasks', { method: 'POST', body: JSON.stringify(payload) })
-      if (res.ok && res.data) return res.data
-      // fallback to localStorage
-      const raw = localStorage.getItem('boardTasks'); const tasks = raw ? JSON.parse(raw) : []
-      const t = { id: 'ev-' + uid(''), ...payload, createdAt: new Date().toISOString() }
-      tasks.unshift(t); localStorage.setItem('boardTasks', JSON.stringify(tasks)); return t
-    } catch (e) {
-      const raw = localStorage.getItem('boardTasks'); const tasks = raw ? JSON.parse(raw) : []
-      const t = { id: 'ev-' + uid(''), title: evt.title, timeline: evt.date || evt.time || '—', color: 'green', columnId: 'backlog', createdAt: new Date().toISOString(), meta: { type: 'event', venue: evt.location } }
-      tasks.unshift(t); localStorage.setItem('boardTasks', JSON.stringify(tasks)); return t
-    }
+      if (res && res.ok && res.data) return res.data
+    } catch (e) { /* ignore */ }
+    return null
   }
 
-  // lead-only create (NO color input)
   const saveEvent = async () => {
     if (role !== 'lead') return alert('Only lead can create events')
     if (!name.trim()) return alert('Enter event name')
-    const e = { id: uid('evt-'), date: date ? new Date(date).toLocaleDateString() : '', title: name.trim(), time, location: venue, description: desc }
-    // try backend create
+
     try {
-      const res = await authFetch('/api/events', { method: 'POST', body: JSON.stringify({ title: e.title, date: e.date, time: e.time, location: e.location, description: e.description }) })
-      if (res.ok && res.data) {
-        // server returned created event
-        const serverEvent = res.data
-        setEvents(prev => [serverEvent, ...prev])
-        await appendBoardTask(serverEvent)
-      } else {
-        // fallback local
-        const updated = [e, ...events]; persistEvents(updated); appendBoardTask(e)
+      const res = await authFetch('/api/events', {
+        method: 'POST',
+        body: JSON.stringify({ title: name.trim(), date, time, location: venue, description: desc })
+      })
+      if (res && res.ok && res.data) {
+        const e = res.data
+        const mapped = {
+          id: String(e._id || e.id || Math.random()),
+          title: e.title,
+          date: fmtDate(e.date),
+          time: e.time || '',
+          location: e.location || '',
+          description: e.description || '',
+          color: e.color || '',
+          raw: e
+        }
+        setEvents(prev => [mapped, ...prev])
+        await appendBoardTask(mapped)
       }
     } catch (err) {
-      const updated = [e, ...events]; persistEvents(updated); appendBoardTask(e)
+      console.warn('fallback create failed', err)
     }
 
-    setAttendanceState(prev => ({ ...prev, [e.id]: null }))
-    setName(''); setDate(''); setTime(''); setVenue(''); setDesc(''); setOpenCreate(false)
+    setName(''); setDate(''); setTime(''); setVenue(''); setDesc('')
+    setOpenCreate(false)
   }
 
   const deleteEvent = async (id) => {
     if (role !== 'lead') return
     if (!confirm('Delete this event?')) return
-    // try backend delete
+
     try {
-      const res = await authFetch(`/api/events/${encodeURIComponent(id)}`, { method: 'DELETE' })
-      if (res.ok) {
-        setEvents(prev => prev.filter(x => x.id !== id))
-        const copy = { ...attendanceState }; delete copy[id]; setAttendanceState(copy); localStorage.removeItem(`attendance-${id}`)
+      const res = await authFetch(`/api/events/${id}`, { method: 'DELETE' })
+      if (res && res.ok) {
+        setEvents(prev => prev.filter(e => e.id !== id))
+        const copy = { ...attendanceState }
+        delete copy[id]
+        setAttendanceState(copy)
         return
       }
-    } catch (e) { /* ignore and fallback */ }
-    // fallback
-    const filtered = events.filter(e => e.id !== id)
-    persistEvents(filtered)
-    const copy = { ...attendanceState }; delete copy[id]; setAttendanceState(copy); localStorage.removeItem(`attendance-${id}`)
+    } catch (err) {
+      console.warn('delete failed', err)
+    }
+    // optimistic local removal if server fails
+    setEvents(prev => prev.filter(e => e.id !== id))
   }
 
+  // Open attendance editor: load attendance for event & prepare editingAttendance keyed by DB member ids
   const openAttendanceEditor = async (eventId) => {
     if (role !== 'lead') return
-    // try load from backend first
+
+    // prefer using previously fetched attendanceState if available
+    const existing = attendanceState[eventId] || {}
+
     try {
-      const res = await authFetch(`/api/attendance?eventId=${encodeURIComponent(eventId)}`)
-      if (res.ok) {
-        const map = res.data || {}
-        // set default present for those not specified
-        ALL_MEMBERS.forEach(m => { if (!map[m.id]) map[m.id] = 'present' })
-        setEditingAttendance(map)
+      const event = events.find(e => e.id === eventId)
+      const eventQueryId = event?.raw && (event.raw._id || event.raw.id) ? (event.raw._id || event.raw.id) : eventId
+      const res = await authFetch(`/api/attendance?eventId=${eventQueryId}`)
+      if (res && res.ok && Array.isArray(res.data)) {
+        const map = {}
+        res.data.forEach(a => {
+          const memberId = a.member && typeof a.member === 'object' ? String(a.member._id || a.member.id) : String(a.member || a.memberId || a.member_id || '')
+          if (!memberId) return
+          map[memberId] = a.status || a.attendance || (a.present ? 'present' : 'absent')
+        })
+        // ensure every member has a value (default present)
+        const merged = {}
+        const members = membersList.length ? membersList : []
+        members.forEach(m => { merged[m.id] = map[m.id] || 'present' })
+        setEditingAttendance(merged)
         setOpenAttendFor(eventId)
         return
       }
-    } catch (e) { /* fallback */ }
+    } catch (err) {
+      console.warn('openAttendanceEditor fetch failed', err)
+    }
 
-    // fallback to localStorage
-    const stored = attendanceState[eventId] || {}
-    const map = {}
-    ALL_MEMBERS.forEach(m => { map[m.id] = (stored && stored[m.id]) ? stored[m.id] : 'present' })
-    setEditingAttendance(map)
+    // fallback: build from existing state or default present
+    const merged = {}
+    const members = membersList.length ? membersList : []
+    members.forEach(m => { merged[m.id] = existing[m.id] || 'present' })
+    setEditingAttendance(merged)
     setOpenAttendFor(eventId)
   }
 
-  const setEditingStatus = (memberId, status) => setEditingAttendance(prev => ({ ...prev, [memberId]: status }))
-
+  // Save attendance: send bulk attendance map keyed by DB member ids
   const saveAttendance = async (eventId) => {
     if (role !== 'lead') return
-    try {
-      // try backend save
-      const res = await authFetch('/api/attendance', { method: 'POST', body: JSON.stringify({ eventId, attendance: editingAttendance }) })
-      if (res.ok) {
-        // update from server or set local copy
-        setAttendanceState(prev => ({ ...prev, [eventId]: editingAttendance }))
-        setOpenAttendFor(null)
-        return
-      }
-    } catch (e) { /* fallback to localStorage */ }
+    if (!editingAttendance || typeof editingAttendance !== 'object') return
 
     try {
-      localStorage.setItem(`attendance-${eventId}`, JSON.stringify(editingAttendance))
-      setAttendanceState(prev => ({ ...prev, [eventId]: editingAttendance }))
+      const event = events.find(e => e.id === eventId)
+      const eventQueryId = event?.raw && (event.raw._id || event.raw.id) ? (event.raw._id || event.raw.id) : eventId
+
+      const res = await authFetch('/api/attendance', {
+        method: 'POST',
+        body: JSON.stringify({ eventId: eventQueryId, attendance: editingAttendance })
+      })
+
+      // If server returns upserted docs array, normalize it; otherwise use editingAttendance
+      let newMap = {}
+      if (res && res.ok && Array.isArray(res.data) && res.data.length) {
+        res.data.forEach(d => {
+          const mid = d.member && typeof d.member === 'object' ? String(d.member._id || d.member.id) : String(d.member || d.memberId || d.member_id || '')
+          if (mid) newMap[mid] = d.status || d.attendance || (d.present ? 'present' : 'absent')
+        })
+      } else {
+        // server didn't return docs — fallback to editingAttendance
+        newMap = { ...editingAttendance }
+      }
+
+      // store under normalized event id
+      setAttendanceState(prev => ({ ...prev, [eventId]: newMap }))
+      try { localStorage.setItem(`attendance-${eventId}`, JSON.stringify(newMap)) } catch {}
       setOpenAttendFor(null)
-    } catch (e) { console.warn(e) }
+      setEditingAttendance({})
+      return
+    } catch (err) {
+      console.error('saveAttendance failed', err)
+      // fallback local update for UX
+      setAttendanceState(prev => ({ ...prev, [eventId]: { ...editingAttendance } }))
+      try { localStorage.setItem(`attendance-${eventId}`, JSON.stringify(editingAttendance)) } catch {}
+      setOpenAttendFor(null)
+      setEditingAttendance({})
+    }
   }
 
-  // UI helpers: all event cards green (fixed)
   const cardGreenClass = 'border-green-500 bg-green-950/20'
-  const badgeClass = (status) => status === 'absent' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
 
   return (
     <MainLayout hudType="events">
-      {/* =======  the rest of your original JSX below exactly as you had it ======= */}
       <div className="p-4 sm:p-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl sm:text-3xl font-bold text-white">EVENT_TIMELINE</h2>
 
-          <div className="flex items-center gap-3">
-            {role === 'lead' ? (
-              <button onClick={() => setOpenCreate(true)} className="bg-green-500 hover:bg-green-600 text-black font-bold py-2 px-4 rounded">+ Upcoming_Schedule</button>
-            ) : (
-              <div className="px-3 py-2 text-sm text-gray-300 rounded">Upcoming Schedule</div>
-            )}
-          </div>
+          {role === 'lead' ? (
+            <button onClick={() => setOpenCreate(true)} className="bg-green-500 hover:bg-green-600 text-black font-bold py-2 px-4 rounded">
+              + Upcoming_Schedule
+            </button>
+          ) : (
+            <div className="px-3 py-2 text-sm text-gray-300 rounded">Upcoming Schedule</div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {events.map(ev => (
-            <div key={ev.id} className={`${cardGreenClass} rounded-lg p-3 sm:p-4 transition hover:scale-105 relative break-words border-2`}>
+            <div key={ev.id} className={`${cardGreenClass} rounded-lg p-3 sm:p-4 hover:scale-105 relative border-2`}>
               {role === 'lead' && (
-                <button onClick={(e) => { e.stopPropagation(); deleteEvent(ev.id) }} className="absolute top-0 right-2 text-xs sm:text-sm text-red-400 hover:text-red-300">x</button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); deleteEvent(ev.id) }}
+                  className="absolute top-0 right-2 text-xs text-red-400 hover:text-red-300"
+                >
+                  x
+                </button>
               )}
 
               <div onClick={() => setOpenDescFor(ev)} className="cursor-pointer">
                 <div className="flex justify-between mb-1">
-                  <span className="text-gray-400 text-xs sm:text-sm">{ev.date}</span>
+                  <span className="text-gray-400 text-xs">{ev.date}</span>
                   <span className="text-xs text-gray-300 absolute right-2 top-4">{ev.time}</span>
                 </div>
-                <h3 className="text-white font-bold mb-1 text-sm sm:text-base">{ev.title}</h3>
-                <p className="text-gray-400 text-xs sm:text-sm mb-3 break-words">Location: {ev.location}</p>
+
+                <h3 className="text-white font-bold mb-1 text-sm">{ev.title}</h3>
+                <p className="text-gray-400 text-xs mb-3">Location: {ev.location}</p>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                {role === 'lead' && (
-                  <button onClick={(e) => { e.stopPropagation(); openAttendanceEditor(ev.id) }} className="px-2 py-2 sm:py-1 bg-green-600/50 text-white border-2 rounded text-xs sm:text-sm">Mark Attendance</button>
-                )}
-              </div>
+              {role === 'lead' && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openAttendanceEditor(ev.id) }}
+                    className="px-2 py-2 bg-green-600/50 text-white border-2 rounded text-xs"
+                  >
+                    Mark Attendance
+                  </button>
+
+                  <div className="flex items-center gap-2 ml-auto">
+                    <div className="text-xs text-gray-300">Present: <span className="font-medium text-white ml-1">{Object.values(attendanceState[ev.id] || {}).filter(s => s === 'present').length}</span></div>
+                    <div className="text-xs text-gray-300">Absent: <span className="font-medium text-white ml-1">{Object.values(attendanceState[ev.id] || {}).filter(s => s === 'absent').length}</span></div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
       </div>
 
+      {/* CREATE EVENT OVERLAY */}
+      <Overlay open={openCreate} onClose={() => setOpenCreate(false)} title="Create Event" width="w-full sm:max-w-xl">
+        <div className="space-y-3">
+          <input className="w-full px-3 py-2 bg-gray-800 text-white rounded" placeholder="Event name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="w-full px-3 py-2 bg-gray-800 text-white rounded" placeholder="Date (YYYY-MM-DD)" value={date} onChange={(e) => setDate(e.target.value)} />
+          <input className="w-full px-3 py-2 bg-gray-800 text-white rounded" placeholder="Time" value={time} onChange={(e) => setTime(e.target.value)} />
+          <input className="w-full px-3 py-2 bg-gray-800 text-white rounded" placeholder="Venue" value={venue} onChange={(e) => setVenue(e.target.value)} />
+          <textarea className="w-full px-3 py-2 bg-gray-800 text-white rounded" placeholder="Description" value={desc} onChange={(e) => setDesc(e.target.value)} />
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setOpenCreate(false)} className="px-3 py-2 rounded bg-gray-700">Cancel</button>
+            <button onClick={saveEvent} className="px-3 py-2 rounded bg-green-600 text-black">Create</button>
+          </div>
+        </div>
+      </Overlay>
+
+      {/* ATTENDANCE OVERLAY (shows member list and allows marking) */}
+      <Overlay open={!!openAttendFor} onClose={() => { setOpenAttendFor(null); setEditingAttendance({}) }} title="Mark Attendance" width="w-full sm:max-w-2xl">
+        {openAttendFor && (
+          <div className="space-y-4">
+            <div className="text-sm text-gray-300 mb-1">Event: <span className="text-white font-semibold">{events.find(e => e.id === openAttendFor)?.title}</span></div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[55vh] overflow-auto">
+              {(membersList.length ? membersList : []).map(m => {
+                const status = editingAttendance[m.id] || 'present'
+                return (
+                  <div key={m.id} className="flex items-center justify-between p-3 rounded bg-gray-800/30">
+                    <div>
+                      <div className="text-white font-medium">{m.name}</div>
+                      <div className="text-xs text-gray-400">{m.domain}</div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setEditingAttendance(prev => ({ ...prev, [m.id]: 'present' }))} className={`px-3 py-1 rounded ${status === 'present' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'}`}>Present</button>
+                      <button onClick={() => setEditingAttendance(prev => ({ ...prev, [m.id]: 'absent' }))} className={`px-3 py-1 rounded ${status === 'absent' ? 'bg-red-600 text-white' : 'bg-gray-700 text-white'}`}>Absent</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setOpenAttendFor(null); setEditingAttendance({}) }} className="px-3 py-2 rounded bg-gray-700">Cancel</button>
+              <button onClick={() => saveAttendance(openAttendFor)} className="px-3 py-2 rounded bg-green-600 text-black">Save Attendance</button>
+            </div>
+          </div>
+        )}
+      </Overlay>
+
+      {/* DESCRIPTION OVERLAY */}
+      <Overlay open={!!openDescFor} onClose={() => setOpenDescFor(null)} title="Event Details">
+        {openDescFor && (
+          <div>
+            <div className="text-sm text-gray-300 mb-2">Title: <span className="text-white font-semibold">{openDescFor.title}</span></div>
+            <div className="text-sm text-gray-300 mb-2">When: <span className="text-white">{openDescFor.date} {openDescFor.time}</span></div>
+            <div className="text-sm text-gray-300 mb-2">Where: <span className="text-white">{openDescFor.location}</span></div>
+            <div className="text-sm text-gray-300 mb-2">Description:</div>
+            <div className="text-gray-300">{openDescFor.description}</div>
+          </div>
+        )}
+      </Overlay>
     </MainLayout>
   )
 }

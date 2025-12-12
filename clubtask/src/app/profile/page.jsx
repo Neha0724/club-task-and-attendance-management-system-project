@@ -25,40 +25,109 @@ export default function ProfilePage() {
   const [isEditingBio, setIsEditingBio] = useState(false)
   const [draftBio, setDraftBio] = useState('')
 
-  // flatten members for lookups
+  // flatten members for lookups (fallback)
   const ALL_MEMBERS = DOMAINS.flatMap(d => d.members.map(m => ({ id: m.id, name: m.name, domain: d.name })))
 
-  // read query params client-side (avoids useSearchParams / suspense issue)
+  // ---------- NEW: fetch logged-in user's profile ----------
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    let mounted = true
+    ;(async () => {
+      try {
+        // Try to read stored token and user id
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+        const savedUserId = typeof window !== 'undefined' ? (localStorage.getItem('userId') || localStorage.getItem('currentMemberId')) : null
 
-    const params = new URLSearchParams(window.location.search)
-    const memberFromQuery = params.get('member') || null
+        // helper to apply profile to state
+        const applyProfile = (p) => {
+          if (!p || !mounted) return
+          // possible shapes: { user: {...} } or user object directly
+          const user = p.user || p || {}
+          const id = user._id || user.id || user._uid || savedUserId || null
+          const name = user.name || user.username || user.displayName || user.email?.split?.('@')?.[0] || ''
+          const mail = user.email || ''
+          const pos = user.position || user.role || position || 'Member'
+          const domain = user.domain || user.dept || domainName || ''
+          const since = user.memberSince || user.joinedYear || user.createdAt ? (user.memberSince || (user.createdAt ? (new Date(user.createdAt).getFullYear()) : undefined)) : undefined
+          const userBio = user.bio || user.profileBio || bio || ''
 
-    if (memberFromQuery) {
-      setCurrentMemberId(memberFromQuery)
-      const found = ALL_MEMBERS.find(m => m.id === memberFromQuery)
-      if (found) {
-        setCurrentMemberName(found.name)
-        setDomainName(found.domain)
-      } else {
-        setCurrentMemberName('')
-        setDomainName('')
+          if (id) {
+            setCurrentMemberId(String(id))
+            try { localStorage.setItem('currentMemberId', String(id)) } catch {}
+          }
+          if (name) {
+            setCurrentMemberName(name)
+            try { localStorage.setItem('currentMemberName', name) } catch {}
+          }
+          if (mail) setEmail(mail)
+          if (pos) setPosition(pos)
+          if (domain) setDomainName(domain)
+          if (userBio) setBio(userBio)
+          if (since) setMemberSince(String(since))
+        }
+
+        // 1) Preferred: /api/auth/me (works if authFetch attaches token)
+        try {
+          const meRes = await authFetch('/api/auth/me')
+          if (meRes && meRes.ok) {
+            // server may return { user: {...} } or the user object directly
+            applyProfile(meRes.data || meRes)
+            return
+          }
+        } catch (e) {
+          // ignore and fallback
+        }
+
+        // 2) Fallback: if we have a saved userId, try /api/users/:id
+        if (savedUserId) {
+          const byIdPaths = [
+            `/api/users/${encodeURIComponent(savedUserId)}`,
+            `/api/members/${encodeURIComponent(savedUserId)}`,
+            `/api/user/${encodeURIComponent(savedUserId)}`,
+            `/api/member/${encodeURIComponent(savedUserId)}`
+          ]
+          for (const p of byIdPaths) {
+            try {
+              const r = await authFetch(p)
+              if (r && r.ok && (r.data || r.user)) {
+                applyProfile(r.data || r.user || r)
+                return
+              }
+            } catch (_) { /* try next */ }
+          }
+        }
+
+        // 3) Final fallback: try /api/members (list) and pick first / match savedUserId
+        try {
+          const listRes = await authFetch('/api/members')
+          if (listRes && listRes.ok && Array.isArray(listRes.data) && listRes.data.length) {
+            // prefer savedUserId if present, else pick first user
+            const match = savedUserId ? listRes.data.find(u => String(u._id || u.id) === String(savedUserId)) : listRes.data[0]
+            if (match) {
+              applyProfile(match)
+              return
+            }
+          }
+        } catch (_) { /* ignore */ }
+
+        // 4) If nothing found, try localStorage fallbacks (old app behavior)
+        const nameLS = localStorage.getItem('profileName') || localStorage.getItem('currentMemberName')
+        const idLS = localStorage.getItem('currentMemberId') || localStorage.getItem('userId')
+        const posLS = localStorage.getItem('position') || position
+        const domLS = localStorage.getItem('domain') || domainName
+        const sinceLS = localStorage.getItem('memberSince') || memberSince
+        if (idLS) setCurrentMemberId(idLS)
+        if (nameLS) setCurrentMemberName(nameLS)
+        if (posLS) setPosition(posLS)
+        if (domLS) setDomainName(domLS)
+        if (sinceLS) setMemberSince(sinceLS)
+      } catch (err) {
+        console.warn('profile fetch error', err)
       }
-    } else {
-      // no member in query — keep placeholders
-      setCurrentMemberId(null)
-      setCurrentMemberName('')
-      setDomainName('')
-    }
+    })()
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { mounted = false }
   }, [])
 
-  // -----------------------------
-  // NEW: load tasks/events/attendance from backend (authFetch) with localStorage fallback
-  // runs on mount and whenever currentMemberId changes
-  // -----------------------------
   useEffect(() => {
     let mounted = true
     ;(async () => {
@@ -112,9 +181,27 @@ export default function ProfilePage() {
         const state = {}
         for (const e of ev) {
           try {
-            const aRes = await authFetch(`/api/attendance?eventId=${encodeURIComponent(e.id)}`)
-            if (aRes.ok) state[e.id] = aRes.data || {}
-            else {
+            // prefer _id when present
+            const qId = e._id || e.id
+            const aRes = await authFetch(`/api/attendance?eventId=${encodeURIComponent(qId)}`)
+            if (aRes && aRes.ok) {
+              // server likely returns array of docs; convert to map
+              const raw = aRes.data
+              if (Array.isArray(raw)) {
+                const map = {}
+                raw.forEach(item => {
+                  const mid = item.member && typeof item.member === 'object' ? String(item.member._id || item.member.id) : String(item.member || item.memberId || item._id || item.id || '')
+                  if (!mid) return
+                  map[mid] = item.status || item.attendance || (item.present ? 'present' : 'absent')
+                })
+                state[e.id] = map
+              } else if (raw && typeof raw === 'object') {
+                // if API returned map already
+                state[e.id] = raw
+              } else {
+                state[e.id] = {}
+              }
+            } else {
               const rawA = localStorage.getItem(`attendance-${e.id}`)
               state[e.id] = rawA ? JSON.parse(rawA) : {}
             }
@@ -135,7 +222,7 @@ export default function ProfilePage() {
   // completed tasks (in-memory)
   const completedTasks = useMemo(() => {
     if (!currentMemberId) return []
-    return boardTasks.filter(t => t.assignee === currentMemberId && (t.columnId === 'done' || t.columnId === 'DEPLOYED'))
+    return boardTasks.filter(t => String(t.assignee) === String(currentMemberId) && (t.columnId === 'done' || t.columnId === 'DEPLOYED'))
   }, [boardTasks, currentMemberId])
 
   const tasksCompletedCount = completedTasks.length
@@ -146,7 +233,7 @@ export default function ProfilePage() {
     let count = 0
     for (const ev of eventsList) {
       const map = attendanceState[ev.id] || {}
-      const status = map[currentMemberId] || 'present'
+      const status = map[currentMemberId] || map[String(currentMemberId)] || 'not marked'
       if (status === 'present') count++
     }
     return count
@@ -161,9 +248,16 @@ export default function ProfilePage() {
         setDomainName(mm.domain)
       }
     }
-  }, [currentMemberId, currentMemberName, ALL_MEMBERS])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMemberId, currentMemberName])
 
   const handleLogout = () => {
+    try {
+      localStorage.removeItem('token')
+      localStorage.removeItem('userId')
+      localStorage.removeItem('currentMemberId')
+      localStorage.removeItem('currentMemberName')
+    } catch (e) {}
     router.push('/login')
   }
 
